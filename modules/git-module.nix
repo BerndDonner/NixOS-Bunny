@@ -5,8 +5,8 @@
     enable = true;
     package = pkgs.gitFull;
 
-    # NOTE: Intentionally NO user.name / user.email here.
-    settings = {
+    # Systemweite Git-Konfig (entspricht /etc/gitconfig)
+    config = {
       init.defaultBranch = "master";
 
       pull.rebase = true;

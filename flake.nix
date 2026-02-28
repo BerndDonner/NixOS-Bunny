@@ -17,8 +17,12 @@
     in {
       packages.${system} = {
         vmware = mk "vmware";
-        qcow2  = mk "qcow2";   # optional, kann auch komplett raus
+        qcow2  = mk "qcow-efi";   # optional, kann auch komplett raus
         default = mk "vmware"; # optional: nix build ohne .#...
       };
+
+      # Convenience aliases (top-level)
+      # vmware = self.packages.${system}.vmware;
+      # qcow2  = self.packages.${system}.qcow2;
     };
 }

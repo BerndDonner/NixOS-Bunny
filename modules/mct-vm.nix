@@ -57,7 +57,7 @@ disableTelemetry: true
   # Where VSIX files will live inside the image.
   vsixDir = "/opt/vscode-vsix";
 
-  installExtensionsScript = pkgs.writeShellScript "mct-install-vscode-extensions" ''
+  installExtensionsScript = pkgs.writeShellScriptBin "mct-install-vscode-extensions" ''
     set -euo pipefail
 
     # Run as the logged-in user.
@@ -78,20 +78,20 @@ disableTelemetry: true
       CODE_BIN="$(command -v code || true)"
     fi
 
-    if [ -z "${CODE_BIN:-}" ] || [ ! -x "${CODE_BIN:-}" ]; then
+    if [ -z "$CODE_BIN" ] || [ ! -x "$CODE_BIN" ]; then
       echo "ERROR: VS Code binary not found (vscode-fhs)." >&2
       exit 1
     fi
 
     shopt -s nullglob
     vsixes=("${vsixDir}"/*.vsix)
-    if [ "${#vsixes[@]}" -eq 0 ]; then
+    if [ "$${#vsixes[@]}" -eq 0 ]; then
       echo "INFO: No VSIX files found in ${vsixDir}. Nothing to install." >&2
       : > "$marker"
       exit 0
     fi
 
-    for v in "${vsixes[@]}"; do
+    for v in "$${vsixes[@]}"; do
       echo "Installing VSIX: $v" >&2
       "$CODE_BIN" --install-extension "$v" --force >/dev/null || {
         echo "WARN: Failed to install $v" >&2
@@ -120,7 +120,7 @@ in {
 
   services.displayManager.sddm.enable = true;
   services.displayManager.sddm.wayland.enable = true;
-  services.displayManager.defaultSession = "plasmawayland";
+  services.displayManager.defaultSession = "plasma";
 
   services.desktopManager.plasma6.enable = true;
 
@@ -183,11 +183,15 @@ During the build, those VSIX files will be copied into ${vsixDir}.
     tree
     ripgrep
     wl-clipboard
+
+
+    # Convenience command (manual run): `mct-install-vscode-extensions`
+    installExtensionsScript
   ];
 
   # Bash: ls colors + LS_COLORS via dircolors
   programs.bash = {
-    enableCompletion = true;
+    completion.enable = true;
     interactiveShellInit = ''
       if command -v dircolors >/dev/null 2>&1; then
         eval "$(dircolors -b)"
@@ -204,12 +208,9 @@ During the build, those VSIX files will be copied into ${vsixDir}.
     description = "Install bundled VSIX extensions for VS Code (one-shot)";
     serviceConfig = {
       Type = "oneshot";
-      ExecStart = "${installExtensionsScript}";
+      ExecStart = "${installExtensionsScript}/bin/mct-install-vscode-extensions";
     };
   };
-
-  # Convenience command (manual run): `mct-install-vscode-extensions`
-  environment.systemPackages = config.environment.systemPackages ++ [ installExtensionsScript ];
 
   # Locale defaults (Germany)
   i18n.defaultLocale = "de_DE.UTF-8";
