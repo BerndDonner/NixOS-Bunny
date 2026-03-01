@@ -37,8 +37,8 @@
               networking.hostName = host;
 
               home-manager.users.${username}.programs.git = {
-                userName  = h.gitName;
-                userEmail = h.gitEmail;
+                settings.user.name = h.gitName;
+                settings.user.email = h.gitEmail;
               };
             })
           ];
@@ -51,11 +51,24 @@
     in {
       nixosConfigurations = nixosConfs;
 
-      packages.${system} = {
-        # nixpkgs images (upstreamed nixos-generators functionality)
-        qcow2  = bunnySystem.config.system.build.images."qemu-efi";
-        vmware = bunnySystem.config.system.build.images.vmware;
-        default = bunnySystem.config.system.build.images.vmware;
-      };
+      packages.${system} = let
+        perHost =
+          builtins.listToAttrs (builtins.concatLists (map (host: [
+            {
+              name = "${host}-qcow2";
+              value = nixosConfs.${host}.config.system.build.images."qemu-efi";
+            }
+            {
+              name = "${host}-vmware";
+              value = nixosConfs.${host}.config.system.build.images.vmware;
+            }
+          ]) ids));
+      in
+        perHost // {
+          # Backwards-compatible shortcuts (golden image = bunny)
+          qcow2  = bunnySystem.config.system.build.images."qemu-efi";
+          vmware = bunnySystem.config.system.build.images.vmware;
+          default = bunnySystem.config.system.build.images.vmware;
+        }
     };
 }
