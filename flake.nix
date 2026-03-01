@@ -3,32 +3,32 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
-    nixos-generators.url = "github:nix-community/nixos-generators";
-    nixos-generators.inputs.nixpkgs.follows = "nixpkgs";
 
     home-manager.url = "github:nix-community/home-manager/release-25.11";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = { self, nixpkgs, nixos-generators, home-manager }:
+  outputs = { self, nixpkgs, home-manager }:
     let
       system = "x86_64-linux";
-      mk = format: nixos-generators.nixosGenerate {
-        inherit system format;
+
+      bunnySystem = nixpkgs.lib.nixosSystem {
+        inherit system;
         modules = [
           home-manager.nixosModules.home-manager
           ./modules/mct-vm.nix
         ];
       };
     in {
-      packages.${system} = {
-        vmware = mk "vmware";
-        qcow2  = mk "qcow-efi";   # optional, kann auch komplett raus
-        default = mk "vmware"; # optional: nix build ohne .#...
-      };
+      nixosConfigurations.bunny = bunnySystem;
 
-      # Convenience aliases (top-level)
-      # vmware = self.packages.${system}.vmware;
-      # qcow2  = self.packages.${system}.qcow2;
+      packages.${system} = {
+        # neue upstreamed image builder: system.build.images.<variant>
+        # Variantenamen sind wie bei nixos-generators (z.B. vmware, qcow-efi, raw-efi, ...)
+        vmware = bunnySystem.config.system.build.images.vmware;
+        qcow2  = bunnySystem.config.system.build.images."qemu-efi";
+
+        default = bunnySystem.config.system.build.images.vmware;
+      };
     };
 }
