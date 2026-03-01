@@ -1,4 +1,4 @@
-# Tabby-Replacement (MCT) — NixOS 25.11 VM image config
+# Bunny (MCT) — NixOS 25.11 VM image config
 
 This repo builds a **NixOS 25.11** VM image for **Microcontrollertechnik** with:
 
@@ -6,8 +6,10 @@ This repo builds a **NixOS 25.11** VM image for **Microcontrollertechnik** with:
 - VMware guest integration
 - Google Chrome (unfree)
 - VS Code **vscode-fhs**
-- Continue config at `~/.continue/config.yaml` (user scope via `/etc/skel`)
-- Git + your aliases (no `user.name` / `user.email` on purpose)
+- Nerd Fonts (JetBrainsMono/FiraCode/UbuntuMono Nerd Font)
+- Home Manager (flakes-only) for user-scoped config
+- Git + your aliases (no `user.name` / `user.email` on purpose; lives in Home Manager)
+- micro editor with sensible defaults
 - Tools: `curl`, `wget`, `jq`, `unzip`, `zip`, `tree`, `rg`, `wl-copy`
 - Bash: `ls --color=auto` + `LS_COLORS` via `dircolors`
 
@@ -28,28 +30,6 @@ nix build .#qcow2
 nix build .#virtualbox
 ```
 
-## VS Code Extensions (offline via VSIX)
-
-This config supports bundling VSIX files into the image at `/opt/vscode-vsix`.
-
-1. Download VSIX files into `assets/vsix/`:
-
-```bash
-./scripts/fetch-vsix.sh <continue_version> <arduino_maker_workshop_version>
-```
-
-2. Build the image.
-
-3. Inside the VM, install the bundled extensions once:
-
-```bash
-mct-install-vscode-extensions
-```
-
-This keeps things "not intrusive" (no autoinstall), but still fully offline-capable.
-
-If you later want a one-shot autoinstall on first login, we can simply add a `WantedBy=default.target` to the provided user service.
-
 ## Default user
 
 - username: `student`
@@ -60,6 +40,4 @@ If you later want a one-shot autoinstall on first login, we can simply add a `Wa
 ## Files
 
 - `modules/mct-vm.nix` — main system config
-- `modules/git-module.nix` — git config (without identity)
-- `assets/vsix/` — put VSIX files here before building
-- `scripts/fetch-vsix.sh` — helper to download VSIX
+- `modules/home/student.nix` — Home Manager config for `student` (git + micro + defaults)

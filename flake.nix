@@ -5,14 +5,20 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     nixos-generators.url = "github:nix-community/nixos-generators";
     nixos-generators.inputs.nixpkgs.follows = "nixpkgs";
+
+    home-manager.url = "github:nix-community/home-manager/release-25.11";
+    home-manager.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = { self, nixpkgs, nixos-generators }:
+  outputs = { self, nixpkgs, nixos-generators, home-manager }:
     let
       system = "x86_64-linux";
       mk = format: nixos-generators.nixosGenerate {
         inherit system format;
-        modules = [ ./modules/mct-vm.nix ];
+        modules = [
+          home-manager.nixosModules.home-manager
+          ./modules/mct-vm.nix
+        ];
       };
     in {
       packages.${system} = {
