@@ -26,6 +26,30 @@ in {
   # VM guest integration
   virtualisation.vmware.guest.enable = true;
 
+
+  # --- Initrd: storage/network drivers for portable VM images (QEMU + VMware)
+  # Some image builders don't auto-include the right modules. Ensure root disk appears early.
+  boot.initrd.availableKernelModules = lib.mkBefore [
+    # QEMU virtio
+    "virtio" "virtio_pci" "virtio_ring"
+    "virtio_blk" "virtio_scsi"
+    # SATA/AHCI/ATA fallback
+    "ahci" "ata_piix"
+    # Generic SCSI / disk
+    "sd_mod" "sr_mod" "scsi_mod"
+    # NVMe (harmless, useful on some setups)
+    "nvme"
+    # VMware storage (if image later runs there)
+    "vmw_pvscsi"
+  ];
+
+  # Load the important ones early (keeps /dev/disk/by-label/* working reliably)
+  boot.initrd.kernelModules = lib.mkBefore [
+    "virtio_pci" "virtio_blk" "virtio_scsi"
+    "ahci" "ata_piix"
+    "vmw_pvscsi"
+  ];
+
   # --- Desktop: KDE Plasma (Wayland default; X11 selectable)
   services.xserver.enable = true;
   services.xserver.videoDrivers = [ "vmware" ];
