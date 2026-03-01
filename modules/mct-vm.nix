@@ -8,6 +8,23 @@ in {
   nixpkgs.config.allowUnfree = true;
 
   # Flakes-only setup (keine Channels)
+
+  # Make nixos-rebuild (flake-mode) work without --flake:
+  # nixos-rebuild looks for /etc/nixos/flake.nix and uses nixosConfigurations.<hostname>.
+  system.activationScripts.mctLinkEtcNixos.text = ''
+    set -e
+    target="/home/student/NixOS-Bunny"
+    if [ -e "$target/flake.nix" ]; then
+      if [ -L /etc/nixos ]; then
+        # ok
+        :
+      else
+        rm -rf /etc/nixos
+        ln -s "$target" /etc/nixos
+      fi
+    fi
+  '';
+
   nix = {
     settings.experimental-features = [ "nix-command" "flakes" ];
     nixPath = lib.mkForce [ ];
@@ -19,8 +36,6 @@ in {
     useUserPackages = true;
     users.${username} = import ./home/student.nix;
   };
-
-  networking.hostName = "bunny";
   time.timeZone = "Europe/Berlin";
 
   # VM guest integration
