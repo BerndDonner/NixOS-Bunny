@@ -42,6 +42,24 @@ in {
   virtualisation.vmware.guest.enable = true;
 
 
+  # --- Boot + filesystems (required for nixos-rebuild switch on a running VM)
+
+  boot.loader.systemd-boot.enable = true;
+
+  # In VMs i.d.R. kein echtes EFI-NVRAM persistent → nicht versuchen, Variablen zu schreiben
+  boot.loader.efi.canTouchEfiVariables = false;
+  boot.loader.efi.efiSysMountPoint = "/boot";
+
+  fileSystems."/" = {
+    device = "/dev/disk/by-label/nixos";
+    fsType = "ext4";
+  };
+
+  fileSystems."/boot" = {
+    device = "/dev/disk/by-label/ESP";
+    fsType = "vfat";
+  };
+
   # --- Initrd: storage/network drivers for portable VM images (QEMU + VMware)
   # Some image builders don't auto-include the right modules. Ensure root disk appears early.
   boot.initrd.availableKernelModules = lib.mkBefore [
