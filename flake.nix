@@ -69,6 +69,6 @@
           qcow2  = bunnySystem.config.system.build.images."qemu-efi";
           vmware = bunnySystem.config.system.build.images.vmware;
           default = bunnySystem.config.system.build.images.vmware;
-        }
+        };
     };
 }
