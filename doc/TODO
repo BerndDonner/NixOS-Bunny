@@ -1,0 +1,34 @@
+-magic-wormhole rein,
+-activation script raus
+-externes Phase2 script erstellen und mit magic-wormhole in die VM kopieren und ausführen
+
+
+Liste des VSCode-Plugins:
+
+continue.continue
+ms-vscode.cmake-tools
+ms-vscode.cpp-devtools
+ms-vscode.cpptools
+ms-vscode.cpptools-extension-pack
+ms-vscode.cpptools-themes
+ms-vscode.vscode-serial-monitor
+thelastoutpostworkshop.arduino-maker-workshop
+
+wenn ein solches script in /home/student/bin abgelegt werden könnte, dann
+sollte es eben nicht aktiviert werden, sondern ich selbst führe es einmal bei
+der Einrichtung für Phase 2 aus und lösche es anschließend. Ginge das?
+
+Phase 1: nix build .#qcow2
+
+Phase 2: unter andern: zwei öffentliche git repos in /home/student clonen.
+Unzählige vscode plugins installieren, continue config installieren, symlink
+/etc/nixos auf die eigene config setzen, kwallet passwort auf mct setzen,
+...(vermutlich hab ich was vergessen)... zuletzt Phase 3 mit
+nixos-rebuild switch starten
+
+Phase 3: jetzt ist das golden image fertig. für jeden einzelnen Schüler nun
+eine Kopie des golden images erstellen
+
+Phase 4: wieder deklarativ aber diesmal von innerhalb der VM, jetzt werden in
+jedem individuellen Schülerimage individuelle Einstellungen vorgenommen wie
+hostname, git.name, git.email, vielleicht später IP... Rückfragen?

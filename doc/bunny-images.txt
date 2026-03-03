@@ -1,0 +1,51 @@
+kannst du mir schnell ein script erstellen, dass
+
+1.) mit der flag --clone:
+golden .qcow2 und golden.OVMF_VARS.fd nach bunnyXX.qcow2 und bunnyXX.OMVF_VARS.fd kopiert. XX soll nur von 01..11 laufen, da 00 bereits existiert.
+
+2.) mit der flag --convert:
+alle bunnyXX.qcow2 in bunnyXX.vmdk mit dem befehl:
+qemu-img convert -p -f qcow2 -O vmdk -o subformat=monolithicSparse bunnyXX.qcow2 bunnyXX.vmdk
+umwandelt. Wichtig!!! wenn bunnyXX.vmdk existiert soll keine Umwandlung stattfinden nur eine Warnung ausgeben.
+
+3.) mit der flag --help:
+einen hilfreich Hilfetext ausgibt
+
+ist alles verständlich? Rückfragen? Verbesserungsvorschläge?
+
+─  ls -al                                                                                                         󰥔 08:21
+total 44604228
+drwxr-xr-x 1 bernd users         228 Mar  3 08:20 .
+drwxr-xr-x 1 bernd users         444 Mar  1 21:25 ..
+-rw-r--r-- 1 bernd users      540672 Mar  1 21:47 bunny00.OVMF_VARS.fd
+-rw-r--r-- 1 bernd users 13943898112 Mar  1 21:53 bunny00.qcow2
+-rw-r--r-- 1 bernd users 13940686848 Mar  1 22:00 bunny00.vmdk
+-rw-r--r-- 1 bernd users  4345370232 Mar  1 22:00 bunny00.vmdk.zst
+-rw-r--r-- 1 bernd users      540672 Mar  2 21:54 golden.OVMF_VARS.fd
+-rw-r--r-- 1 bernd users 13444055040 Mar  2 23:41 golden.qcow2
+-rw-r--r-- 1 bernd users        1038 Mar  1 21:21 mapping.txt
+-rwxr-xr-x 1 bernd users        3689 Mar  1 21:26 run-qemu.sh
+
+VM       Forgejo     Name               Email                            
+-------  ----------  -----------------  ---------------------------------
+bunny00  binder      Andreas Binder     Andreas.Binder@sabel.education   
+bunny01  braun       Leo Braun          Leo.Braun@sabel.education        
+bunny02  brunner     Jonas Brunner      Jonas.Brunner@sabel.education    
+bunny03  donner      Dr. Bernd Donner   Bernd.Donner@sabel.com           
+bunny04  hauslohner  Tobias Hauslohner  Tobias.Hauslohner@sabel.education
+bunny05  kiehn       Florian Kiehn      Florian.Kiehn@sabel.education    
+bunny06  n.mueller   Niklas Mueller     Niklas.Mueller@sabel.education   
+bunny07  ploch       Leon Ploch         Leon.Ploch@sabel.education       
+bunny08  schmidt     Benjamin Schmidt   Benjamin.Schmidt@sabel.education 
+bunny09  stemmer     Tobias Stemmer     Tobias.Stemmer@sabel.education   
+bunny10  wagner      Daniel Wagner      Daniel.Wagner@sabel.education    
+bunny11  zigldrum    Markus Zigldrum    Markus.Zigldrum@sabel.education  
+
+
+1.)Könntest Du bei --clone auch einen Warnung ausgeben, dass nicht gecloned wird, weil die datei schon existiert? 
+
+2.) Könnte man den start der VMs eigentlich auch automatisieren und das kommando
+
+sudo nixos-rebuild switch --flake .#bunnyXX
+
+in der vm automatisch ausführen?
