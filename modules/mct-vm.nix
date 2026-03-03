@@ -150,7 +150,7 @@ in {
     tree
     ripgrep
     wl-clipboard
-
+    magic-wormhole
 
   ];
 
