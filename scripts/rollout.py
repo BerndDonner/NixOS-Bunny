@@ -33,7 +33,7 @@ import re
 import subprocess
 import sys
 import time
-from typing import Optional, Tuple, Dict
+from typing import Optional, Dict, Iterator, Tuple, List
 
 _HEX64_RE = re.compile(r"^[0-9A-Fa-f]{64}$")
 
@@ -67,15 +67,31 @@ def ensure_dir(path: str, *, dry_run: bool, logfile: Optional[str]) -> None:
 
 
 def ping_host(pc: str, *, timeout_ms: int, logfile: Optional[str]) -> bool:
-    p = subprocess.run(["ping", "-n", "1", "-w", str(int(timeout_ms)), pc], capture_output=True)
+    # NOTE: We only use ping as a fast "skip offline host" heuristic.
+    # Windows ping output encoding may vary; use utf-8 with replacement to avoid crashes.
+    p = subprocess.run(
+        ["ping", "-n", "1", "-w", str(int(timeout_ms)), pc],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
     ok = (p.returncode == 0)
     if not ok:
-        log("WARN", f"Ping failed: {pc} (continuing anyway)", logfile=logfile)
-        return True
+        log("WARN", f"Ping failed: {pc} (skipping)", logfile=logfile)
+        return False
     return True
- 
 
-def robocopy_one(src_dir: str, dst_dir: str, filename: str, *, retries: int, dry_run: bool, logfile: Optional[str]) -> None:
+
+def robocopy_one(
+    src_dir: str,
+    dst_dir: str,
+    filename: str,
+    *,
+    retries: int,
+    dry_run: bool,
+    logfile: Optional[str],
+) -> None:
     if dry_run:
         log("INFO", f"[dry-run] robocopy {src_dir} {dst_dir} {filename}", logfile=logfile)
         return
@@ -84,8 +100,9 @@ def robocopy_one(src_dir: str, dst_dir: str, filename: str, *, retries: int, dry
         f"/R:{max(0, int(retries))}", "/W:2",
         "/NFL", "/NDL", "/NP", "/NJH", "/NJS",
     ]
-    p = subprocess.run(cmd, capture_output=True, text=True)
+    p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     rc = p.returncode
+    # Robocopy uses bitmask exit codes; >= 8 indicates a failure.
     if rc >= 8:
         out = (p.stdout or "").strip()
         err = (p.stderr or "").strip()
@@ -95,7 +112,7 @@ def robocopy_one(src_dir: str, dst_dir: str, filename: str, *, retries: int, dry
 
 def certutil_sha256(path: str) -> str:
     cmd = ["certutil", "-hashfile", path, "SHA256"]
-    p = subprocess.run(cmd, capture_output=True, text=True)
+    p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if p.returncode != 0:
         raise RuntimeError(f"certutil failed rc={p.returncode}: {(p.stderr or '').strip()}")
     for line in (p.stdout or "").splitlines():
@@ -128,7 +145,7 @@ def write_text_file(path: str, content: str, *, dry_run: bool, logfile: Optional
         f.write(content)
 
 
-def iter_csv_rows(csv_path: str) -> Tuple[int, list[str]]:
+def iter_csv_rows(csv_path: str) -> Iterator[Tuple[int, List[str]]]:
     with open(csv_path, "r", encoding="utf-8-sig", newline="") as f:
         reader = csv.reader(f)
         for idx, row in enumerate(reader, start=1):
@@ -136,7 +153,8 @@ def iter_csv_rows(csv_path: str) -> Tuple[int, list[str]]:
                 continue
             if row and row[0].strip().startswith("#"):
                 continue
-            if idx == 1 and row and row[0].strip().lower() in {"pc", "host", "computer"}:
+            # Header allowed. Accept common first-column names.
+            if idx == 1 and row and row[0].strip().lower() in {"pc", "pcname", "host", "computer"}:
                 continue
             yield idx, row
 
@@ -153,12 +171,18 @@ def _to_unc(pc: str, target_dir: str) -> str:
     return rf"\\{pc}\C$\{td_rel}"
 
 
-def _schtasks(pc: str, args: list[str], *, dry_run: bool, logfile: Optional[str]) -> subprocess.CompletedProcess[str]:
+def _schtasks(
+    pc: str,
+    args: List[str],
+    *,
+    dry_run: bool,
+    logfile: Optional[str],
+) -> subprocess.CompletedProcess[str]:
     cmd = ["schtasks", "/S", pc] + args
     if dry_run:
         log("INFO", "[dry-run] " + " ".join(cmd), logfile=logfile)
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
-    p = subprocess.run(cmd, capture_output=True, text=True)
+    p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if p.returncode != 0:
         out = (p.stdout or "").strip()
         err = (p.stderr or "").strip()
@@ -178,13 +202,56 @@ def _parse_schtasks_query(output: str) -> Dict[str, str]:
     return info
 
 
+def _normalize_last_run_time(s: str) -> str:
+    """
+    schtasks uses locale-dependent text. Normalize "not run" into empty string.
+    """
+    t = (s or "").strip()
+    if not t:
+        return ""
+    tl = t.lower()
+    if tl in {"n/a", "na", "none"}:
+        return ""
+    # German/English variants that mean "never"
+    if "nie" in tl or "never" in tl or "not run" in tl:
+        return ""
+    return t
+
+
 def _get_task_info(pc: str, task_name: str, *, dry_run: bool, logfile: Optional[str]) -> Dict[str, str]:
     p = _schtasks(pc, ["/Query", "/TN", task_name, "/FO", "LIST", "/V"], dry_run=dry_run, logfile=logfile)
     d = _parse_schtasks_query(p.stdout or "")
+
+    # Map locale-dependent keys (German/English) to stable internal keys.
+    # "Last Run Time"
+    if "letzte laufzeit" in d and "last run time" not in d:
+        d["last run time"] = d["letzte laufzeit"].strip()
+    # Some variants: "Last Result" -> treat as last run result if present
+    if "letztes ergebnis" in d and "last run result" not in d:
+        d["last run result"] = d["letztes ergebnis"].strip()
     if "last result" in d and "last run result" not in d:
         d["last run result"] = d["last result"].strip()
+    if "last run time" in d:
+        d["last run time"] = _normalize_last_run_time(d["last run time"])
+
+    # Keep "status" as-is; value is locale-dependent. We no longer rely on it for completion.
     return d
-    
+
+
+def _parse_task_result(s: str) -> Optional[int]:
+    s = (s or "").strip().lower()
+    if not s:
+        return None
+    # Handles "0", "0x0", "267009", "0x41301"
+    try:
+        if s.startswith("0x"):
+            return int(s, 16)
+        if s.isdigit():
+            return int(s, 10)
+        return None
+    except ValueError:
+        return None
+        
 
 def remote_unpack_via_schtasks(
     *,
@@ -208,7 +275,7 @@ def remote_unpack_via_schtasks(
     pre_last_run_time = ""
     try:
         info = _get_task_info(pc, task_name, dry_run=dry_run, logfile=logfile)
-        pre_last_run_time = info.get("last run time", "")
+        pre_last_run_time = info.get("last run time", "") or ""
     except Exception:
         pre_last_run_time = ""
 
@@ -242,28 +309,51 @@ def remote_unpack_via_schtasks(
         return
 
     deadline = time.time() + max(1, int(timeout_sec))
+    last_seen_status = ""
     while True:
         if time.time() > deadline:
+            # Keep the task for post-mortem (you can query it on the teacher PC).
             raise RuntimeError(f"Timeout waiting for remote unpack task on {pc}: {task_name}")
 
         info = _get_task_info(pc, task_name, dry_run=dry_run, logfile=logfile)
-        status = (info.get("status", "")).lower()
-        last_run_time = info.get("last run time", "")
-        last_run_result = (info.get("last run result", "")).lower()
+        last_run_time = (info.get("last run time", "") or "").strip()
+        last_run_result = (info.get("last run result", "") or "").strip().lower()
+        status = (info.get("status", "") or "").strip()
+        if status and status != last_seen_status:
+            last_seen_status = status
+            # Debug-ish breadcrumb that survives locales; harmless in normal logs.
+            log("INFO", f"Remote task status: {pc} {task_name} -> {status}", logfile=logfile)
 
-        ran = (last_run_time and last_run_time != pre_last_run_time) or (pre_last_run_time == "" and last_run_time != "")
-        done = ran and ("ready" in status or status == "ready")
+        res = _parse_task_result(last_run_result)
 
-        if done:
-            if last_run_result not in {"0x0", "0"}:
+        ran = False
+        if last_run_time:
+            if not pre_last_run_time:
+                ran = True
+            elif last_run_time != pre_last_run_time:
+                ran = True
+
+        if ran:
+            # 0x41301 (267009) = task is currently running -> keep waiting
+            if res == 0x41301:
+                time.sleep(max(0.2, float(poll_sec)))
+                continue
+
+            # success
+            if res == 0:
+                break
+
+            # other numeric result -> failure
+            if res is not None:
                 raise RuntimeError(
                     f"Remote unpack task failed on {pc}: {task_name} "
                     f"(Last Run Result={info.get('last run result','?')})"
                 )
-            break
 
+        # If we can't decide yet (no run time / no result), keep polling
         time.sleep(max(0.2, float(poll_sec)))
 
+    # Clean up after success.
     _schtasks(pc, ["/Delete", "/TN", task_name, "/F"], dry_run=dry_run, logfile=logfile)
     log("INFO", f"Remote unpack OK: {pc} -> {vm}.vmdk", logfile=logfile)
 
@@ -386,7 +476,7 @@ def deploy_one(
         )
 
 
-def parse_args(argv: list[str]) -> argparse.Namespace:
+def parse_args(argv: List[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="rollout.py",
         formatter_class=argparse.RawTextHelpFormatter,
@@ -426,7 +516,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
-def main(argv: list[str]) -> int:
+def main(argv: List[str]) -> int:
     args = parse_args(argv)
     logfile = make_logfile(args.logdir)
 
@@ -516,6 +606,7 @@ def main(argv: list[str]) -> int:
     log("INFO", f"Logfile: {os.path.abspath(logfile)}", logfile=logfile)
     print(f'Log: "{os.path.abspath(logfile)}"')
     return 0
+
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
