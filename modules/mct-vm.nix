@@ -87,6 +87,11 @@ in {
   services.xserver.enable = true;
   services.xserver.videoDrivers = [ "vmware" ];
 
+  services.xserver.xkb = {
+    layout = "de";
+    variant = "nodeadkeys";
+  };
+
   services.displayManager.sddm.enable = true;
   services.displayManager.sddm.wayland.enable = true;
   services.displayManager.defaultSession = "plasma";
