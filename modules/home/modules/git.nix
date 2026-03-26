@@ -3,11 +3,11 @@
 {
   programs.git = {
     enable = true;
-    package = pkgs.gitFull;
+    package = pkgs.gitFull.override { withLibsecret = true; };
 
     settings = {
 
-      credential.helper = "kwallet";
+      credential.helper = "libsecret";
       init.defaultBranch = "master";
 
       pull.rebase = true;
