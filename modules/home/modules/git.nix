@@ -8,6 +8,7 @@
     settings = {
 
       credential.helper = "libsecret";
+      core.askPass = "";
       init.defaultBranch = "master";
 
       pull.rebase = true;

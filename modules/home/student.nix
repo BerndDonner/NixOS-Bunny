@@ -14,6 +14,9 @@
   home.sessionVariables = {
     EDITOR = "micro";
     VISUAL = "micro";
+
+    SSH_ASKPASS = "";
+    GIT_ASKPASS = "";
   };
 
   # micro: pleasant defaults (mouse, softwrap, sane tab width)

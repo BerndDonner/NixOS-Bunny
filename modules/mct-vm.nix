@@ -87,6 +87,12 @@ in {
   services.xserver.enable = true;
   services.xserver.videoDrivers = [ "vmware" ];
 
+  services.xserver.xkb = {
+    layout = "de";
+    variant = "nodeadkeys";
+  };
+  
+
   services.displayManager.sddm.enable = true;
   services.displayManager.sddm.wayland.enable = true;
   services.displayManager.defaultSession = "plasma";
@@ -97,7 +103,7 @@ in {
   security.pam.services.sddm.kwallet.enable = true;
 
   # Autologin
-  services.displayManager.autoLogin.enable = true;
+  services.displayManager.autoLogin.enable = false;
   services.displayManager.autoLogin.user = username;
 
   # --- User
@@ -168,8 +174,8 @@ in {
 
   # Locale defaults (Germany)
   i18n.defaultLocale = "de_DE.UTF-8";
-  console.keyMap = "de";
-
+  console.useXkbConfig = true;
+  
   # Sensible base
   system.stateVersion = "25.11";
 }
