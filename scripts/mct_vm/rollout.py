@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 r"""
-MCT VM Rollout (VMware) - Python edition
+mct-vm rollout — MCT VM Rollout (VMware)
 
 CSV format (7 columns, header allowed):
-  pc,vm,login,fullname,email,file,sha256
+  pcname,vm,forgejo,name,email,file,sha256
 
 Where:
   - file   = e.g. bunny00.vmdk.zst
@@ -913,7 +913,7 @@ def deploy_one(
 
 def parse_args(argv: List[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        prog="rollout.py",
+        prog="mct-vm rollout",
         formatter_class=argparse.RawTextHelpFormatter,
         description=(
             "Roll out VMware VM images (.vmdk.zst) to remote Windows PCs via \\\\PC\\C$.\n"
@@ -921,8 +921,8 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
             "Emergency: local unpack + local vmdk reference SHA + unverified copies.\n"
         ),
     )
-    p.add_argument("--csv", default="rollout.csv", help="Path to rollout.csv (default: rollout.csv in CWD)")
-    p.add_argument("--src", default="images", help="Directory containing .vmdk.zst files (default: images)")
+    p.add_argument("--csv", default="rollout.csv", help="Path to rollout.csv (default: rollout.csv)")
+    p.add_argument("--src", default=".", help="Directory containing .vmdk.zst files (default: current directory)")
     p.add_argument("--tools", default="tools", help="Tools directory (must contain zstd.exe)")
     p.add_argument("--target-dir", default=r"C:\Virtual_Machines", help=r"Target directory on remote C: (default: C:\Virtual_Machines)")
     p.add_argument("--only", dest="only_pc", default="", help="Only deploy rows matching this PC name (case-insensitive)")

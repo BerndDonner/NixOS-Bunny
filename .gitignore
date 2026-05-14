@@ -2,3 +2,7 @@ assets/vsix/*.vsix
 
 result
 
+# mct-vm generated/runtime files
+__pycache__/
+*.pyc
+logs/
