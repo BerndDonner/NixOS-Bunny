@@ -2,10 +2,13 @@
 set -euo pipefail
 
 # bunny-images.sh
-# Clone golden.qcow2 + golden.OVMF_VARS.fd into bunny00..bunny11
-# Convert bunny00..bunny11.qcow2 into bunnyXX.vmdk (monolithicSparse)
-# Compress bunny00..bunny11.vmdk into bunnyXX.vmdk.zst
+# Clone golden.qcow2 + golden.OVMF_VARS.fd into the active bunnyXX images from mapping.txt
+# Convert active bunnyXX.qcow2 images into bunnyXX.vmdk (monolithicSparse)
+# Compress active bunnyXX.vmdk images into bunnyXX.vmdk.zst
 # Create SHA256 checksums for bunny*.vmdk.zst
+#
+# The active bunny numbers are read from the first column of mapping.txt.
+# Lines starting with # are ignored.
 
 GOLDEN_QCOW2="golden.qcow2"
 GOLDEN_VARS="golden.OVMF_VARS.fd"
@@ -21,86 +24,174 @@ Usage:
   bunny-images.sh --sha256
   bunny-images.sh --help
 
-Overview (what YOU still need to do manually):
+Selection of VMs:
+  This script does NOT use a fixed bunny00..bunny11 range anymore.
+
+  The active VM numbers are read from the first column of:
+
+    mapping.txt
+
+  Only entries matching this form are used:
+
+    bunnyXX
+
+  where XX is a two-digit number, for example:
+
+    bunny00
+    bunny03
+    bunny11
+
+  Lines starting with # are ignored.
+
+  This means you can control which VMs are processed by commenting or
+  uncommenting lines in mapping.txt.
+
+  Example:
+
+    VM       Forgejo     Name
+    -------  ----------  -----------------
+    bunny00  binder      Andreas Binder
+    #bunny01 braun       Leo Braun
+    bunny03  donner      Dr. Bernd Donner
+
+  In this example, only bunny00 and bunny03 are processed.
+
+  Only the first column matters for this script. The other columns may be
+  missing or incomplete.
+
+Overview:
   This script automates only the file operations on the host side:
-    1) Clone:   copy golden image -> bunny00..bunny11
-    2) MANUAL:  inside each VM run nixos-rebuild for the matching flake output
-    3) Convert: qcow2 -> vmdk for bunny00..bunny11
-    4) Zstd:    compress vmdk -> vmdk.zst for bunny00..bunny11
-    5) SHA256:  create checksums file for bunny*.vmdk.zst (for transfer verification)
+
+    1) Clone:
+       copy golden image -> active bunnyXX images from mapping.txt
+
+    2) MANUAL:
+       inside each VM run nixos-rebuild for the matching flake output
+
+    3) Convert:
+       qcow2 -> vmdk for active bunnyXX images from mapping.txt
+
+    4) Zstd:
+       compress vmdk -> vmdk.zst for active bunnyXX images from mapping.txt
+
+    5) SHA256:
+       create checksums file for bunny*.vmdk.zst
 
 Step 1 — Clone (host side, automated by --clone):
-  Copies these two files:
+  For every active bunnyXX entry in mapping.txt, this copies:
+
     golden.qcow2          -> bunnyXX.qcow2
     golden.OVMF_VARS.fd   -> bunnyXX.OVMF_VARS.fd
-  for XX = 00..11.
 
   Safety behavior:
-    - If bunnyXX.qcow2 already exists, it will NOT be overwritten (warning only).
-    - If bunnyXX.OVMF_VARS.fd already exists, it will NOT be overwritten (warning only).
+    - If bunnyXX.qcow2 already exists, it will NOT be overwritten.
+    - If bunnyXX.OVMF_VARS.fd already exists, it will NOT be overwritten.
+    - Existing files are skipped with a warning.
 
-Step 2 — IMPORTANT manual step (inside the VM, user action required):
-  After you boot a specific VM (example: bunny07), you MUST run inside that VM:
+Step 2 — IMPORTANT manual step (inside each VM):
+  After you boot a specific VM, you MUST run inside that VM:
 
     sudo nixos-rebuild switch --flake .#bunnyXX
 
-  Replace XX with the VM number you are currently working on (00..11).
+  Replace XX with the VM number you are currently working on.
+
   Example inside bunny07:
+
     sudo nixos-rebuild switch --flake .#bunny07
 
   Notes:
     - This step is intentionally NOT automated by this script.
     - Run it only after the VM is booted and you are logged in.
+    - Do this separately for every cloned VM.
 
 Step 3 — Convert to VMware format (host side, automated by --convert):
-  Converts:
+  For every active bunnyXX entry in mapping.txt, this converts:
+
     bunnyXX.qcow2 -> bunnyXX.vmdk
-  using the exact command:
+
+  using:
 
     qemu-img convert -p -f qcow2 -O vmdk -o subformat=monolithicSparse \
       bunnyXX.qcow2 bunnyXX.vmdk
 
   Important behavior:
-    - If bunnyXX.vmdk already exists: conversion is SKIPPED and a warning is printed.
-    - If bunnyXX.qcow2 is missing: conversion is SKIPPED and a warning is printed.
+    - If bunnyXX.vmdk already exists, conversion is skipped.
+    - If bunnyXX.qcow2 is missing, conversion is skipped with a warning.
 
 Step 4 — Compress VMDKs with zstd (host side, automated by --zstd):
-  Compresses:
+  For every active bunnyXX entry in mapping.txt, this compresses:
+
     bunnyXX.vmdk -> bunnyXX.vmdk.zst
 
   Important behavior:
-    - If bunnyXX.vmdk.zst already exists: compression is SKIPPED and a warning is printed.
-    - If bunnyXX.vmdk is missing: compression is SKIPPED and a warning is printed.
-
-  Notes:
-    - This keeps the original .vmdk (no deletion).
-    - Uses zstd with multiple threads (if available).
+    - If bunnyXX.vmdk.zst already exists, compression is skipped.
+    - If bunnyXX.vmdk is missing, compression is skipped with a warning.
+    - The original .vmdk is kept.
 
 Step 5 — Create SHA256 checksums (host side, automated by --sha256):
-  Writes SHA256 checksums ONLY for:
+  Writes SHA256 checksums for all files matching:
+
     bunny*.vmdk.zst
+
   into:
+
     checksums.sha256
 
-  Exact Linux command used:
+  Note:
+    --sha256 currently hashes all existing bunny*.vmdk.zst files in the
+    current directory, not only the active entries from mapping.txt.
+
+  Exact Linux command used internally:
+
     sha256sum bunny*.vmdk.zst > checksums.sha256
 
-  Manual verification on Windows (example):
+  Manual verification on Windows example:
+
     certutil -hashfile bunny00.vmdk.zst SHA256
 
-  Then compare the shown SHA256 value with the matching line in checksums.sha256.
+  Then compare the shown SHA256 value with the matching line in
+  checksums.sha256.
 
 Requirements:
-  --clone   : golden.qcow2 and golden.OVMF_VARS.fd must exist in the current directory
-  --convert : qemu-img must be available in PATH
-  --zstd    : zstd must be available in PATH
-  --sha256  : sha256sum must be available in PATH
+  mapping.txt must exist in the current directory.
+
+  --clone:
+    golden.qcow2 and golden.OVMF_VARS.fd must exist in the current directory.
+
+  --convert:
+    qemu-img must be available in PATH.
+
+  --zstd:
+    zstd must be available in PATH.
+
+  --sha256:
+    sha256sum must be available in PATH.
+
+Typical workflow:
+  1) Edit mapping.txt and comment out all VMs that should NOT be processed.
+  2) Clone the active VMs:
+
+       ./bunny-images.sh --clone
+
+  3) Boot each cloned VM and run the matching nixos-rebuild command inside it.
+  4) Convert the active VMs:
+
+       ./bunny-images.sh --convert
+
+  5) Compress the active VMDKs:
+
+       ./bunny-images.sh --zstd
+
+  6) Create checksums:
+
+       ./bunny-images.sh --sha256
 
 Examples:
   ./bunny-images.sh --clone
   ./bunny-images.sh --convert
   ./bunny-images.sh --zstd
   ./bunny-images.sh --sha256
+
 
 EOF
 }
@@ -124,18 +215,20 @@ need_cmd() {
   command -v "$c" >/dev/null 2>&1 || die "Missing required command in PATH: $c"
 }
 
-for_xx_00_to_11() {
-  local xx
-  for xx in $(seq -w 0 11); do
-    echo "$xx"
-  done
+selected_bunny_numbers() {
+  awk '
+    /^[[:space:]]*#/ { next }
+    $1 ~ /^bunny[0-9][0-9]$/ {
+      print substr($1, 6, 2)
+    }
+  ' mapping.txt
 }
 
 do_clone() {
   need_file "$GOLDEN_QCOW2"
   need_file "$GOLDEN_VARS"
 
-  for xx in $(for_xx_00_to_11); do
+  for xx in $(selected_bunny_numbers); do
     local dst_qcow2="bunny${xx}.qcow2"
     local dst_vars="bunny${xx}.OVMF_VARS.fd"
 
@@ -158,7 +251,7 @@ do_clone() {
 do_convert() {
   need_cmd "qemu-img"
 
-  for xx in $(for_xx_00_to_11); do
+  for xx in $(selected_bunny_numbers); do
     local src="bunny${xx}.qcow2"
     local dst="bunny${xx}.vmdk"
 
@@ -180,7 +273,7 @@ do_convert() {
 do_zstd() {
   need_cmd "zstd"
 
-  for xx in $(for_xx_00_to_11); do
+  for xx in $(selected_bunny_numbers); do
     local src="bunny${xx}.vmdk"
     local dst="${src}.zst"
 
