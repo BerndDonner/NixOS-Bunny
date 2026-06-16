@@ -57,6 +57,8 @@ import tempfile
 import time
 from typing import Optional, Dict, Iterator, Tuple, List
 
+from .mode import CLASSROOM_MODE, ModeConfig
+
 _HEX64_RE = re.compile(r"^[0-9A-Fa-f]{64}$")
 
 
@@ -911,17 +913,24 @@ def deploy_one(
 # CLI
 # ------------------------
 
-def parse_args(argv: List[str]) -> argparse.Namespace:
+def parse_args(
+    argv: List[str],
+    *,
+    mode: ModeConfig = CLASSROOM_MODE,
+) -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        prog="mct-vm rollout",
+        prog=f"{mode.program_name} rollout",
         formatter_class=argparse.RawTextHelpFormatter,
         description=(
             "Roll out VMware VM images (.vmdk.zst) to remote Windows PCs via \\\\PC\\C$.\n"
             "Default: remote SHA256 (best-effort) + marker + remote unpack via schtasks.\n"
-            "Emergency: local unpack + local vmdk reference SHA + unverified copies.\n"
+            "Emergency: local unpack + local vmdk reference SHA + unverified copies.\n\n"
+            f"Mode: {mode.name}\n"
+            f"Default CSV: {mode.csv_path}\n"
+            f"VM disk suffix: {mode.vm_suffix or '(none)'}\n"
         ),
     )
-    p.add_argument("--csv", default="rollout.csv", help="Path to rollout.csv (default: rollout.csv)")
+    p.add_argument("--csv", default=mode.csv_path, help=f"Path to rollout CSV (default: {mode.csv_path})")
     p.add_argument("--src", default=".", help="Directory containing .vmdk.zst files (default: current directory)")
     p.add_argument("--tools", default="tools", help="Tools directory (must contain zstd.exe)")
     p.add_argument("--target-dir", default=r"C:\Virtual_Machines", help=r"Target directory on remote C: (default: C:\Virtual_Machines)")
@@ -944,9 +953,8 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
     p.add_argument("--unpack-poll-sec", type=float, default=2.0, help="Remote task poll interval seconds (default: 2.0)")
     return p.parse_args(argv)
 
-
-def main(argv: List[str]) -> int:
-    args = parse_args(argv)
+def main(argv: List[str], *, mode: ModeConfig = CLASSROOM_MODE) -> int:
+    args = parse_args(argv, mode=mode)
     logfile = make_logfile(args.logdir)
 
     log("INFO", "=== Rollout started ===", logfile=logfile)
@@ -993,6 +1001,7 @@ def main(argv: List[str]) -> int:
             while len(row) < 7:
                 row.append("")
             pc, vm, _login, _fullname, _email, filename, sha = [x.strip() for x in row[:7]]
+            deploy_vm = mode.vm_file_stem(vm)
 
             if not pc or not vm or not filename or not sha:
                 continue
@@ -1004,7 +1013,7 @@ def main(argv: List[str]) -> int:
             try:
                 deploy_one(
                     pc=pc,
-                    vm=vm,
+                    vm=deploy_vm,
                     filename=filename,
                     expected_sha=sha,
                     src_dir=src_dir,
@@ -1024,7 +1033,7 @@ def main(argv: List[str]) -> int:
                 )
             except Exception as e:
                 failures += 1
-                log("ERROR", f"Line {line_no}: {pc},{vm}: {e}", logfile=logfile)
+                log("ERROR", f"Line {line_no}: {pc},{deploy_vm}: {e}", logfile=logfile)
 
     except (OSError, csv.Error, UnicodeError) as e:
         log("ERROR", f"CSV read/parse failed: {e}", logfile=logfile)

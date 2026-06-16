@@ -15,7 +15,8 @@
 
       username = "student";
 
-      # Create host list: bunny + bunny00..bunny11
+      # Base VM list: bunny + bunny00..bunny11.
+      # The same host data is used for normal and lockdown configurations.
       ids =
         [ "bunny" ]
         ++ (map (n: "bunny" + (lib.fixedWidthNumber 2 n)) (lib.range 0 11));
@@ -24,14 +25,21 @@
         let p = ./hosts + ("/" + host + ".nix");
         in if builtins.pathExists p then p else ./hosts/default.nix;
 
-      mkHost = host:
-        let h = import (hostFileFor host);
+      mkHost = { host, baseHost ? host, lockdown ? false }:
+        let h = import (hostFileFor baseHost);
         in nixpkgs.lib.nixosSystem {
           inherit system;
+          specialArgs = {
+            inherit baseHost lockdown;
+          };
           modules = [
             home-manager.nixosModules.home-manager
             ./modules/mct-vm.nix
-
+          ]
+          ++ lib.optionals lockdown [
+            ./profiles/lockdown.nix
+          ]
+          ++ [
             # Host-specific settings (Nix-managed, reproducible)
             ({ ... }: {
               networking.hostName = host;
@@ -44,10 +52,28 @@
           ];
         };
 
-      nixosConfs =
-        builtins.listToAttrs (map (host: { name = host; value = mkHost host; }) ids);
+      normalConfs =
+        builtins.listToAttrs (map (host: {
+          name = host;
+          value = mkHost { inherit host; };
+        }) ids);
+
+      lockdownConfs =
+        builtins.listToAttrs (map (baseHost: {
+          name = "${baseHost}-lockdown";
+          value = mkHost {
+            host = "${baseHost}-lockdown";
+            inherit baseHost;
+            lockdown = true;
+          };
+        }) ids);
+
+      nixosConfs = normalConfs // lockdownConfs;
 
       bunnySystem = nixosConfs.bunny;
+      bunnyLockdownSystem = nixosConfs."bunny-lockdown";
+
+      packageHosts = ids ++ (map (host: "${host}-lockdown") ids);
     in {
       nixosConfigurations = nixosConfs;
 
@@ -62,13 +88,17 @@
               name = "${host}-vmware";
               value = nixosConfs.${host}.config.system.build.images.vmware;
             }
-          ]) ids));
+          ]) packageHosts));
       in
         perHost // {
           # Backwards-compatible shortcuts (golden image = bunny)
           qcow2  = bunnySystem.config.system.build.images."qemu-efi";
           vmware = bunnySystem.config.system.build.images.vmware;
           default = bunnySystem.config.system.build.images.vmware;
+
+          # Lockdown golden image shortcuts
+          qcow2-lockdown  = bunnyLockdownSystem.config.system.build.images."qemu-efi";
+          vmware-lockdown = bunnyLockdownSystem.config.system.build.images.vmware;
         };
     };
 }

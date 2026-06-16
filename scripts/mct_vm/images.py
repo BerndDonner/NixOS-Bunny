@@ -6,9 +6,10 @@ import subprocess
 from pathlib import Path
 
 from .csv_model import read_rollout_csv, require_fields
+from .mode import CLASSROOM_MODE
 
-GOLDEN_QCOW2 = "golden.qcow2"
-GOLDEN_VARS = "golden.OVMF_VARS.fd"
+GOLDEN_QCOW2 = CLASSROOM_MODE.golden_qcow2
+GOLDEN_VARS = CLASSROOM_MODE.golden_vars
 
 
 def warn(message: str) -> None:
@@ -40,12 +41,19 @@ def _copy_plain(src: Path, dst: Path) -> None:
     )
 
 
-def clone_images(*, csv_path: str, image_dir: str, golden_qcow2: str, golden_vars: str) -> int:
+def clone_images(
+    *,
+    csv_path: str,
+    image_dir: str,
+    golden_qcow2: str,
+    golden_vars: str,
+    vm_suffix: str = "",
+) -> int:
     doc = read_rollout_csv(csv_path)
     active = doc.active_rows()
 
     if not active:
-        warn("No active VM rows found in rollout.csv")
+        warn(f"No active VM rows found in {csv_path}")
         return 0
 
     image_root = Path(image_dir)
@@ -59,9 +67,9 @@ def clone_images(*, csv_path: str, image_dir: str, golden_qcow2: str, golden_var
 
     for row in active:
         require_fields(row, ["vm"], command="clone")
-        vm = row.vm
-        dst_qcow2 = image_root / f"{vm}.qcow2"
-        dst_vars = image_root / f"{vm}.OVMF_VARS.fd"
+        stem = f"{row.vm}{vm_suffix}"
+        dst_qcow2 = image_root / f"{stem}.qcow2"
+        dst_vars = image_root / f"{stem}.OVMF_VARS.fd"
 
         if dst_qcow2.exists():
             warn(f"Skipping copy: {dst_qcow2} already exists")
@@ -77,13 +85,12 @@ def clone_images(*, csv_path: str, image_dir: str, golden_qcow2: str, golden_var
 
     return 0
 
-
-def prepare_images(*, csv_path: str, image_dir: str) -> int:
+def prepare_images(*, csv_path: str, image_dir: str, vm_suffix: str = "") -> int:
     doc = read_rollout_csv(csv_path)
     active = doc.active_rows()
 
     if not active:
-        warn("No active VM rows found in rollout.csv")
+        warn(f"No active VM rows found in {csv_path}")
         return 0
 
     _need_cmd("qemu-img")
@@ -93,11 +100,11 @@ def prepare_images(*, csv_path: str, image_dir: str) -> int:
 
     for row in active:
         require_fields(row, ["vm"], command="prepare-images")
-        vm = row.vm
+        stem = f"{row.vm}{vm_suffix}"
 
-        qcow2 = image_root / f"{vm}.qcow2"
-        vmdk = image_root / f"{vm}.vmdk"
-        zst = image_root / f"{vm}.vmdk.zst"
+        qcow2 = image_root / f"{stem}.qcow2"
+        vmdk = image_root / f"{stem}.vmdk"
+        zst = image_root / f"{stem}.vmdk.zst"
 
         if vmdk.exists():
             warn(f"Skipping convert: {vmdk} already exists")
@@ -132,7 +139,6 @@ def prepare_images(*, csv_path: str, image_dir: str) -> int:
 
     return 0
 
-
 def sha256_file(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
@@ -141,12 +147,12 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest().lower()
 
 
-def update_csv(*, csv_path: str, image_dir: str, checksums_path: str) -> int:
+def update_csv(*, csv_path: str, image_dir: str, checksums_path: str, vm_suffix: str = "") -> int:
     doc = read_rollout_csv(csv_path)
     active = doc.active_rows()
 
     if not active:
-        warn("No active VM rows found in rollout.csv")
+        warn(f"No active VM rows found in {csv_path}")
         return 0
 
     image_root = Path(image_dir)
@@ -154,12 +160,12 @@ def update_csv(*, csv_path: str, image_dir: str, checksums_path: str) -> int:
 
     for row in active:
         require_fields(row, ["vm"], command="update-csv")
-        vm = row.vm
-        filename = f"{vm}.vmdk.zst"
+        stem = f"{row.vm}{vm_suffix}"
+        filename = f"{stem}.vmdk.zst"
         zst_path = image_root / filename
 
         if not zst_path.is_file():
-            raise FileNotFoundError(f"Missing compressed image for active VM {vm}: {zst_path}")
+            raise FileNotFoundError(f"Missing compressed image for active VM {row.vm}: {zst_path}")
 
         sha = sha256_file(zst_path)
         row.raw["file"] = filename
@@ -176,3 +182,4 @@ def update_csv(*, csv_path: str, image_dir: str, checksums_path: str) -> int:
     info(f"Wrote {checksums}")
 
     return 0
+
