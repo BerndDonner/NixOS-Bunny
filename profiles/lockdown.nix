@@ -19,14 +19,18 @@
   systemd.services.mct-exam-firewall = {
     description = "MCT exam lockdown firewall";
     wants = [ "network-online.target" ];
-    after = [ "network-online.target" ];
+    after = [
+      "network-online.target"
+      "NetworkManager.service"
+      "systemd-networkd.service"
+    ];
     wantedBy = [ "multi-user.target" ];
 
-    path = [
-      pkgs.coreutils
-      pkgs.gawk
-      pkgs.glibc.bin
-      pkgs.nftables
+    path = with pkgs; [
+      coreutils  # timeout, sleep
+      gawk       # awk
+      getent     # getent ahostsv4
+      nftables   # nft
     ];
 
     serviceConfig = {
@@ -44,47 +48,40 @@
       AI_HOST="ai.donner-lab.org"
       AI_PORT="11434"
 
+
+      wait_for_dns_config() {
+        local attempt=""
+
+        for attempt in 1 2 3 4 5 6 7 8 9 10; do
+          if awk '$1 == "nameserver" { found=1 } END { exit !found }' /etc/resolv.conf 2>/dev/null; then
+            return 0
+          fi
+
+          echo "WARN: /etc/resolv.conf has no nameserver yet (attempt $attempt/10)." >&2
+          sleep 1
+        done
+
+        return 1
+      }
+
+      build_dns_rules() {
+        awk '
+          $1 == "nameserver" && $2 ~ /^[0-9]+([.][0-9]+){3}$/ {
+            print "          ip daddr " $2 " udp dport 53 accept"
+            print "          ip daddr " $2 " tcp dport 53 accept"
+          }
+
+          $1 == "nameserver" && $2 ~ /:/ {
+            print "          ip6 daddr " $2 " udp dport 53 accept"
+            print "          ip6 daddr " $2 " tcp dport 53 accept"
+          }
+        ' /etc/resolv.conf 2>/dev/null
+      }
+
       apply_base_rules() {
-        nft flush ruleset
+        local dns_rules=""
 
-        nft -f - <<'NFT_EOF'
-      table inet mct_exam {
-        chain input {
-          type filter hook input priority 0; policy drop;
-
-          iifname "lo" accept
-          ct state established,related accept
-
-          # DHCP replies for IPv4 lease renewal.
-          udp sport 67 udp dport 68 accept
-
-          reject
-        }
-
-        chain output {
-          type filter hook output priority 0; policy drop;
-
-          oifname "lo" accept
-          ct state established,related accept
-
-          # DHCP requests for IPv4 lease renewal.
-          udp sport 68 udp dport 67 accept
-
-          # DNS is required to resolve the AI endpoint.
-          udp dport 53 accept
-          tcp dport 53 accept
-
-          # NTP keeps timestamps sane during the exam.
-          udp dport 123 accept
-
-          reject
-        }
-      }
-      NFT_EOF
-      }
-
-      apply_ai_rules() {
-        local ai_ip="$1"
+        dns_rules="$(build_dns_rules)"
 
         nft flush ruleset
 
@@ -99,6 +96,9 @@
           # DHCP replies for IPv4 lease renewal.
           udp sport 67 udp dport 68 accept
 
+          # Minimal ICMPv6 needed for IPv6 Neighbor Discovery and error handling.
+          icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-advert, packet-too-big, time-exceeded, parameter-problem } accept
+
           reject
         }
 
@@ -111,9 +111,62 @@
           # DHCP requests for IPv4 lease renewal.
           udp sport 68 udp dport 67 accept
 
+          # Minimal ICMPv6 needed for IPv6 Neighbor Discovery and error handling.
+          icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-solicit, packet-too-big, time-exceeded, parameter-problem } accept
+
+          # DNS is required to resolve the AI endpoint.
+          # Allow only the nameservers currently configured by DHCP/resolvconf.
+          ''${dns_rules}
+
+          # NTP keeps timestamps sane during the exam.
+          udp dport 123 accept
+
+          reject
+        }
+      }
+      NFT_EOF
+      }
+
+      apply_ai_rules() {
+        local ai_ip="$1"
+        local dns_rules=""
+
+        dns_rules="$(build_dns_rules)"
+
+        nft flush ruleset
+
+        nft -f - <<NFT_EOF
+      table inet mct_exam {
+        chain input {
+          type filter hook input priority 0; policy drop;
+
+          iifname "lo" accept
+          ct state established,related accept
+
+          # DHCP replies for IPv4 lease renewal.
+          udp sport 67 udp dport 68 accept
+
+          # Minimal ICMPv6 needed for IPv6 Neighbor Discovery and error handling.
+          icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-advert, packet-too-big, time-exceeded, parameter-problem } accept
+
+          reject
+        }
+
+        chain output {
+          type filter hook output priority 0; policy drop;
+
+          oifname "lo" accept
+          ct state established,related accept
+
+          # DHCP requests for IPv4 lease renewal.
+          udp sport 68 udp dport 67 accept
+
+          # Minimal ICMPv6 needed for IPv6 Neighbor Discovery and error handling.
+          icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-solicit, packet-too-big, time-exceeded, parameter-problem } accept
+
           # DNS is required to resolve the AI endpoint and for normal resolver behavior.
-          udp dport 53 accept
-          tcp dport 53 accept
+          # Allow only the nameservers currently configured by DHCP/resolvconf.
+          ''${dns_rules}
 
           # NTP keeps timestamps sane during the exam.
           udp dport 123 accept
@@ -146,6 +199,10 @@
 
         return 1
       }
+
+      # Prefer starting after DHCP/resolvconf has written the active nameservers.
+      # If this fails, continue fail-closed with no DNS rules.
+      wait_for_dns_config || echo "WARN: No nameserver found in /etc/resolv.conf. DNS will remain blocked." >&2
 
       # Fail closed: install a restrictive base ruleset before doing anything
       # that may block, time out, or fail.
