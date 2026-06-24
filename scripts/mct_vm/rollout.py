@@ -595,43 +595,92 @@ def remote_unpack_via_schtasks(
     out_vmdk = _win_join(td, f"{vm}.vmdk")
     zstd_exe = _win_join(_win_join(td, "tools"), "zstd.exe")
 
+    unc_target = _to_unc(pc, target_dir)
+    unc_tools = _win_join(unc_target, "tools")
+    unc_vmdk = _win_join(unc_target, f"{vm}.vmdk")
+
     safe_vm = _sanitize_task_component(vm)
-    task_name = f"MCT_Rollout_Unpack_{safe_vm}_{time.time_ns()}"
+    unique = time.time_ns()
+    task_name = f"MCT_Rollout_Unpack_{safe_vm}_{unique}"
 
-    tr = (
-        r'cmd.exe /c ""{zstd}" -d -f "{inzst}" -o "{tmp}" && move /y "{tmp}" "{final}""'
-    ).format(zstd=zstd_exe, inzst=in_zst, tmp=out_tmp, final=out_vmdk)
+    # Do not put the long zstd/move command directly into schtasks /TR.
+    # In the lockdown case the command became long enough that schtasks/cmd
+    # quoting was fragile.  Instead, write a small remote .cmd file and make
+    # the scheduled task start only that short script path.
+    script_name = f"mct-unpack-{safe_vm}-{unique}.cmd"
+    script_win = _win_join(_win_join(td, "tools"), script_name)
+    script_unc = _win_join(unc_tools, script_name)
 
-    log("INFO", f"Remote unpack via schtasks: {pc} ({in_zst} -> {out_vmdk})", logfile=logfile)
-
-    _schtasks(
-        pc,
+    script = "\r\n".join(
         [
-            "/Create",
-            "/TN", task_name,
-            "/TR", tr,
-            "/SC", "ONCE",
-            "/ST", "00:00",
-            "/SD", "01/01/2099",
-            "/RU", "SYSTEM",
-            "/RL", "HIGHEST",
-            "/F",
-        ],
-        dry_run=False,
-        logfile=logfile,
+            "@echo off",
+            "setlocal",
+            f'if exist "{out_tmp}" del /f /q "{out_tmp}"',
+            f'"{zstd_exe}" -d -f "{in_zst}" -o "{out_tmp}"',
+            "if errorlevel 1 exit /b %errorlevel%",
+            f'if not exist "{out_tmp}" exit /b 21',
+            f'move /y "{out_tmp}" "{out_vmdk}"',
+            "if errorlevel 1 exit /b %errorlevel%",
+            f'if not exist "{out_vmdk}" exit /b 22',
+            "exit /b 0",
+            "",
+        ]
     )
 
+    write_text_file(script_unc, script, dry_run=False, logfile=logfile)
+
+    # Keep /TR short.  The target-dir default has no spaces, but keep quoting
+    # anyway because users may override --target-dir.
+    tr = f'cmd.exe /c "{script_win}"'
+
+    log("INFO", f"Remote unpack via schtasks: {pc} ({in_zst} -> {out_vmdk})", logfile=logfile)
+    log("INFO", f"Remote unpack task script: {script_unc}", logfile=logfile)
+
+    ok = False
     try:
+        _schtasks(
+            pc,
+            [
+                "/Create",
+                "/TN", task_name,
+                "/TR", tr,
+                "/SC", "ONCE",
+                "/ST", "00:00",
+                "/SD", "01/01/2099",
+                "/RU", "SYSTEM",
+                "/RL", "HIGHEST",
+                "/F",
+            ],
+            dry_run=False,
+            logfile=logfile,
+        )
+
         _schtasks(pc, ["/Run", "/TN", task_name], dry_run=False, logfile=logfile)
         time.sleep(0.5)
         _wait_task_done(pc=pc, task_name=task_name, timeout_sec=timeout_sec, poll_sec=poll_sec, logfile=logfile)
+
+        # Hard postcondition: the VM disk we promised to create must exist.
+        # This catches damaged /TR strings, zstd default-output surprises, and
+        # any other case where the task reports success but the .vmdk is absent.
+        if not os.path.exists(unc_vmdk):
+            raise RuntimeError(f"Remote unpack finished, but expected VMDK is missing: {unc_vmdk}")
+
+        ok = True
         log("INFO", f"Remote unpack OK: {pc} -> {vm}.vmdk", logfile=logfile)
+
     finally:
         try:
             _schtasks(pc, ["/Delete", "/TN", task_name, "/F"], dry_run=False, logfile=logfile)
         except Exception:
             pass
 
+        # If the task failed, leave the generated .cmd file on the target for
+        # diagnosis.  On success, remove it to keep tools\ tidy.
+        if ok:
+            try:
+                os.remove(script_unc)
+            except OSError:
+                pass
 
 # ------------------------
 # Emergency mode helpers
