@@ -83,6 +83,8 @@ in {
     "vmw_pvscsi"
   ];
 
+  boot.initrd.systemd.enable = true;
+
   # --- Desktop: KDE Plasma (Wayland default; X11 selectable)
   services.xserver.enable = true;
   services.xserver.videoDrivers = [ "vmware" ];
@@ -177,5 +179,5 @@ in {
   console.useXkbConfig = true;
   
   # Sensible base
-  system.stateVersion = "25.11";
+  system.stateVersion = "26.05";
 }

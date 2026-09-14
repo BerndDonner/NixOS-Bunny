@@ -1,10 +1,10 @@
 {
-  description = "Microcontrollertechnik - NixOS 25.11 VM image config";
+  description = "Microcontrollertechnik - NixOS 26.05 VM image config";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
 
-    home-manager.url = "github:nix-community/home-manager/release-25.11";
+    home-manager.url = "github:nix-community/home-manager/release-26.05";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
   };
 
