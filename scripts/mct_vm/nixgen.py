@@ -1,17 +1,16 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from .csv_model import read_rollout_csv, require_fields
 
 
 def _nix_string(value: str) -> str:
-    escaped = (
-        value.replace("\\", "\\\\")
-        .replace('"', '\\"')
-        .replace("${", "\\${")
-    )
-    return f'"{escaped}"'
+    """Return a safely quoted Nix string."""
+    # JSON string syntax is accepted for ordinary Nix strings and correctly
+    # escapes quotes, backslashes and control characters.
+    return json.dumps(value, ensure_ascii=False)
 
 
 def generate_nix(*, csv_path: str, target_dir: str) -> int:
@@ -26,9 +25,10 @@ def generate_nix(*, csv_path: str, target_dir: str) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     for row in rows:
-        require_fields(row, ["vm", "name", "email"], command="generate-nix")
+        require_fields(row, ["vm", "forgejo", "name", "email"], command="generate-nix")
 
         vm = row.vm
+        forgejo = row.raw["forgejo"].strip()
         name = row.raw["name"].strip()
         email = row.raw["email"].strip()
 
@@ -36,6 +36,7 @@ def generate_nix(*, csv_path: str, target_dir: str) -> int:
             "{\n"
             f"  gitName  = {_nix_string(name)};\n"
             f"  gitEmail = {_nix_string(email)};\n"
+            f"  forgejo  = {_nix_string(forgejo)};\n"
             "}\n"
         )
 

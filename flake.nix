@@ -47,6 +47,11 @@
               home-manager.users.${username}.programs.git = {
                 settings.user.name = h.gitName;
                 settings.user.email = h.gitEmail;
+                # forgejo is the technical course identity used by MCT_I3A:
+                # mct.student == Forgejo login == student branch == student folder.
+                # Old host files without forgejo stay buildable but fail closed
+                # in the course hooks until regenerate-nix is run.
+                settings.mct.student = if h ? forgejo then h.forgejo else "UNCONFIGURED";
               };
             })
           ];

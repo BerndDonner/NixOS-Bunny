@@ -1,3 +1,21 @@
+# 2026-09-16 — agreed next automation step
+
+After the new Git/MCT base is validated:
+
+1. Treat rollout.csv as the single source of truth for a class.
+2. Generate hosts/bunnyXX.nix including forgejo/name/email.
+3. Automate cloning the approved golden image for all active VMs.
+4. Automate boot -> nixos-rebuild switch --flake .#bunnyXX -> validation -> shutdown.
+5. Extend class bootstrap to Forgejo:
+   - ensure master branch protection,
+   - create each student branch initially at master,
+   - keep API tokens only on the teacher/admin machine, never in images/repos.
+6. Bootstrap MCT_I3A per clone (mct.student, hook, VS Code read-only settings).
+
+Golden-image construction itself stays a deliberately reviewed/manual boundary.
+
+# Older notes (preserved)
+
 -magic-wormhole rein,
 -activation script raus
 -externes Phase2 script erstellen und mit magic-wormhole in die VM kopieren und ausführen

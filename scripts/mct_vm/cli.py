@@ -57,11 +57,11 @@ def build_parser(mode: ModeConfig) -> argparse.ArgumentParser:
             "generate-nix is intentionally mode-neutral and still defaults to rollout.csv.\n"
             f"{lockdown_note}\n"
             "Typical workflow:\n"
+            f"  {mode.program_name} generate-nix --target-dir hosts\n"
             f"  {mode.program_name} clone\n"
             "  # boot each VM and run the matching nixos-rebuild inside it\n"
             f"  {mode.program_name} prepare-images\n"
             f"  {mode.program_name} update-csv\n"
-            f"  {mode.program_name} generate-nix --target-dir <path>\n"
             f"  {mode.program_name} rollout --dry-run\n"
             f"  {mode.program_name} rollout\n"
         ),
@@ -153,7 +153,7 @@ def build_parser(mode: ModeConfig) -> argparse.ArgumentParser:
             "Generate bunnyXX.nix files from rollout.csv.\n"
             "This command is intentionally identical in classroom and lockdown mode.\n"
             "It uses all VM rows, including commented rows.\n"
-            "Required fields per row: vm, name, email.\n\n"
+            "Required fields per row: vm, forgejo, name, email.\n\n"
             "Example:\n"
             f"  {mode.program_name} generate-nix --target-dir hosts/bunnies\n"
         ),
