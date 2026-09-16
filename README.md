@@ -4,8 +4,9 @@ NixOS configuration for the Microcontrollertechnik classroom VMs.
 
 The repository builds the generic/golden Bunny image and the later
 host-specific `bunny00`, `bunny01`, ... configurations. It is intentionally
-separate from the `MCT_I3A` course repository: Bunny provides OS/user/Git
-identity and recovery tooling; the course repository provides `upmaster`,
+separate from the generated course repositories (`MCT_I3A`, `MCT_E3A`, ...):
+Bunny provides OS/user/Git identity and recovery tooling; the course repository
+provides `upmaster`,
 pre-commit policy and VS Code course protection.
 
 ## Git identity model
@@ -26,7 +27,8 @@ user.email  = ...
 mct.student = huber
 ```
 
-`mct.student` is the common technical key used by MCT_I3A for:
+`mct.student` is the common technical key used by every generated MCT course
+repository for:
 
 ```text
 Forgejo login == student branch == student folder
@@ -36,8 +38,9 @@ The golden/teacher configuration `bunny` uses `mct.student = donner`.
 
 Old `hosts/bunnyXX.nix` files from the previous school year do not contain a
 `forgejo` field. They remain buildable with `mct.student = UNCONFIGURED`, but
-MCT_I3A deliberately refuses student commits in that state. Before creating
-new individualized student images, regenerate the host files from the current
+the MCT course repository deliberately refuses student commits in that state.
+Before creating new individualized student images, regenerate the host files
+from the current
 `rollout.csv`.
 
 ## Safe Git defaults
@@ -96,6 +99,36 @@ a non-master branch to its remote. Untracked files are preserved unless
 
 The MCT-specific `git upmaster` does **not** live here; it belongs to the course
 repository.
+
+## Provisioning SSH
+
+Bunny enables OpenSSH for later VM provisioning, but uses systemd socket
+activation (`services.openssh.startWhenNeeded = true`). Normally only
+`sshd.socket` listens on port 22; the `sshd` process is started on demand for a
+connection. NixOS tests this socket-activated mode directly.
+
+Access is deliberately narrow:
+
+```text
+user                 student
+password login       disabled
+keyboard-interactive disabled
+root login           disabled
+authorized key       ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFOwgNuwt6tb2+fz7KQ6g+rH5gBCS58d6d7Y1A2O5bMX bernd@tracy
+```
+
+This key is the **public** provisioning key only. No private key or passphrase
+is stored in Bunny. Because `student` is already in `wheel` with passwordless
+`sudo`, later provisioning can perform the required system and user setup over
+this SSH connection.
+
+The socket can be inspected with:
+
+```bash
+systemctl status sshd.socket
+```
+
+and the actual daemon will normally exist only while a connection is active.
 
 ## Build
 

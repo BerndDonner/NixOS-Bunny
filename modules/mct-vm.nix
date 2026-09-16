@@ -108,6 +108,22 @@ in {
   services.displayManager.autoLogin.enable = false;
   services.displayManager.autoLogin.user = username;
 
+  # --- Provisioning SSH
+  # Socket activation keeps the sshd process stopped until an SSH connection
+  # arrives. Only the student account may log in, exclusively with Bernd's
+  # provisioning key. Password and root login are disabled.
+  services.openssh = {
+    enable = true;
+    startWhenNeeded = true;
+    openFirewall = true;
+    settings = {
+      PasswordAuthentication = false;
+      KbdInteractiveAuthentication = false;
+      PermitRootLogin = "no";
+      AllowUsers = [ username ];
+    };
+  };
+
   # --- User
   users.users.${username} = {
     isNormalUser = true;
@@ -115,6 +131,9 @@ in {
     extraGroups = [ "wheel" "dialout" ];
     initialPassword = "mct";
     shell = pkgs.bashInteractive;
+    openssh.authorizedKeys.keys = [
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFOwgNuwt6tb2+fz7KQ6g+rH5gBCS58d6d7Y1A2O5bMX bernd@tracy"
+    ];
   };
   security.sudo.wheelNeedsPassword = false;
 
