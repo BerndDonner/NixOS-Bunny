@@ -133,22 +133,45 @@ systemctl status sshd.socket
 
 and the actual daemon will normally exist only while a connection is active.
 
-## Build
+## Image lifecycle: QCOW2 until rollout
 
-Golden QEMU image:
+**Phases 1, 2 and 3 are performed on the NixOS host and use QCOW2 images only.**
+There is no VMware/VMDK conversion during image creation, golden-image setup or
+host individualization.  Conversion happens only in the later rollout stage,
+after all host-specific images are already complete and tested.
+
+In particular, do **not** build `.#vmware` as part of phases 1-3.
+
+### Phase 1 — build the generic golden QCOW2
+
+Build the generic `bunny` image:
 
 ```bash
 nix build .#qcow2
 ```
 
-Golden VMware image:
+The resulting QCOW2 is the starting point for the golden image.
 
-```bash
-nix build .#vmware
-```
+### Phase 2 — prepare and test the golden QCOW2
 
-The `bunny` host is the golden/teacher base. Student hosts are individualized
-later by their `bunnyXX` configuration.
+Boot the QCOW2 with QEMU on the NixOS host, perform the deliberate one-time
+golden-image setup (offline documentation/home-tree overlay, manual VS Code
+extensions, Continue test, Git/KWallet checks, etc.), test it, shut it down
+cleanly and keep the resulting QCOW2 as the finished golden image.
+
+### Phase 3 — create and finish the host-specific QCOW2 images
+
+Clone the finished golden QCOW2 for every active `bunnyXX`, then individualize
+each clone with its generated host configuration.  Boot/rebuild/test those
+images while they are still QCOW2 files.  At the end of phase 3, every
+student/teacher image must already be complete and usable in QCOW2 form.
+
+Only **after** phase 3 does rollout begin.  The rollout tooling performs any
+required target-format conversion (for example for VMware) and deployment;
+conversion is not an image-preparation step.
+
+The `bunny` host is the generic golden/teacher base. Student hosts are
+individualized later by their `bunnyXX` configuration.
 
 ## Host generation from rollout.csv
 
@@ -206,30 +229,50 @@ be copied once into the golden VM over the already configured provisioning SSH:
 ./scripts/copy-home-tree.sh /path/to/source-root <VM-address>
 ```
 
-The *contents* of that source root are extracted directly into `/home/student`,
-including hidden files and symlinks.  This is useful when the supplied directory
-tree already has exactly the layout that should appear below the student's home.
+The regular files below that source root are overlaid directly onto
+`/home/student`. Hidden files and files below hidden directories are included.
+Existing directories are kept; unrelated destination contents are never deleted,
+and symlinks/empty directories are not copied.  Existing regular files are
+overwritten except for `~/.continue/config.yaml`, which is installed only if no
+file already exists there; otherwise the script prints a warning and leaves the
+existing Continue config untouched.
 
 VS Code extensions remain a deliberate one-time manual golden-image step.
 
 ## Current manual boundary
 
-The golden image remains a deliberately reviewed artifact. After it exists,
-the current workflow is:
+The golden image remains a deliberately reviewed artifact.  The important
+format boundary is: **everything through the finished `bunnyXX` images is
+QCOW2**.
 
 ```text
 rollout.csv
   -> generate-nix (hosts/bunnyXX.nix)
-  -> clone golden image to bunnyXX images
+
+Phase 1 (QCOW2)
+  -> build generic bunny QCOW2
+
+Phase 2 (QCOW2)
+  -> boot/customize/test generic image
+  -> finished golden QCOW2
+
+Phase 3 (QCOW2)
+  -> clone golden QCOW2 to bunnyXX QCOW2 images
   -> boot each bunnyXX image
   -> sudo nixos-rebuild switch --flake .#bunnyXX
-  -> prepare-images
-  -> update-csv
-  -> rollout
+  -> perform remaining host/course provisioning
+  -> test and shut down
+  -> finished bunnyXX QCOW2 images
+
+Rollout (only now)
+  -> convert finished QCOW2 images to the required target format
+  -> deploy them
 ```
 
-The repetitive boot/rebuild/shutdown part is intentionally left for the next
-automation step; the data model is now ready for it.
+The repetitive clone/boot/rebuild/provision/test/shutdown work in phase 3 is the
+next automation step.  The rollout script must never be used as a substitute for
+finishing an image: it receives already complete QCOW2 images and only then
+handles conversion/deployment.
 
 ## Main files
 

@@ -40,8 +40,30 @@ in {
 
       if [ ! -d "$target/.git" ]; then
         echo "Cloning $repo -> $target"
-        rm -rf "$tmp"
-        git clone "$repo" "$tmp"
+
+        # network-online.target can be reached before QEMU NAT/DNS/HTTPS is
+        # actually usable. Retry the clone for up to one minute instead of
+        # permanently failing the first-boot bootstrap because of that race.
+        cloned=0
+        for attempt in $(seq 1 30); do
+          rm -rf "$tmp"
+          echo "Clone attempt $attempt/30"
+
+          if git clone "$repo" "$tmp"; then
+            cloned=1
+            break
+          fi
+
+          echo "GitHub not reachable yet; retrying in 2 seconds..."
+          sleep 2
+        done
+
+        if [ "$cloned" -ne 1 ]; then
+          echo "ERROR: could not clone $repo after 30 attempts" >&2
+          rm -rf "$tmp"
+          exit 1
+        fi
+
         rm -rf "$target"
         mv "$tmp" "$target"
         chown -R ${username}:users "$target"
