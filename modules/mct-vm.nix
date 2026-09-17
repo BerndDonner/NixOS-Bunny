@@ -9,21 +9,50 @@ in {
 
   # Flakes-only setup (keine Channels)
 
-  # Make nixos-rebuild (flake-mode) work without --flake:
-  # nixos-rebuild looks for /etc/nixos/flake.nix and uses nixosConfigurations.<hostname>.
-  system.activationScripts.mctLinkEtcNixos.text = ''
-    set -e
-    target="/home/student/NixOS-Bunny"
-    if [ -e "$target/flake.nix" ]; then
-      if [ -L /etc/nixos ]; then
-        # ok
-        :
-      else
-        rm -rf /etc/nixos
-        ln -s "$target" /etc/nixos
+  # Bootstrap the public NixOS-Bunny repository on first boot.  The golden
+  # image is booted once with normal Internet access; afterwards the clone is
+  # part of the golden image and therefore inherited by every student VM.
+  #
+  # The service deliberately does not pull/update an existing clone.  A
+  # golden image must be a reviewed snapshot, not something that changes on
+  # every boot.
+  systemd.services.mct-bootstrap-nixos-bunny = {
+    description = "Bootstrap NixOS-Bunny configuration repository";
+    wantedBy = [ "multi-user.target" ];
+    wants = [ "network-online.target" ];
+    after = [ "network-online.target" ];
+
+    path = with pkgs; [ gitFull coreutils ];
+
+    serviceConfig = {
+      Type = "oneshot";
+    };
+
+    script = ''
+      set -eu
+
+      home="/home/${username}"
+      target="$home/NixOS-Bunny"
+      tmp="$home/.NixOS-Bunny.clone"
+      repo="https://github.com/BerndDonner/NixOS-Bunny.git"
+
+      mkdir -p "$home"
+
+      if [ ! -d "$target/.git" ]; then
+        echo "Cloning $repo -> $target"
+        rm -rf "$tmp"
+        git clone "$repo" "$tmp"
+        rm -rf "$target"
+        mv "$tmp" "$target"
+        chown -R ${username}:users "$target"
       fi
-    fi
-  '';
+
+      # Make plain `sudo nixos-rebuild switch` use the checked-out flake and
+      # select nixosConfigurations.<current-hostname>.
+      rm -rf /etc/nixos
+      ln -s "$target" /etc/nixos
+    '';
+  };
 
   nix = {
     settings.experimental-features = [ "nix-command" "flakes" ];

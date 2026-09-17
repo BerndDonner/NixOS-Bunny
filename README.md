@@ -11,12 +11,13 @@ pre-commit policy and VS Code course protection.
 
 ## Git identity model
 
-`rollout.csv` contains both human identity and the technical Forgejo login:
+`rollout.csv` contains the human identity, technical Forgejo login and course:
 
 ```text
-name     -> Git user.name
-email    -> Git user.email
-forgejo  -> Git mct.student
+full_name -> Git user.name
+email     -> Git user.email
+forgejo   -> Git mct.student
+course    -> Git mct.course
 ```
 
 For a student `huber` this later gives:
@@ -34,14 +35,16 @@ repository for:
 Forgejo login == student branch == student folder
 ```
 
+`mct.course` records which class repository belongs to the VM (`I3A` or `E3A`).
+The generic golden host `bunny` deliberately uses `mct.course = UNCONFIGURED`.
+
 The golden/teacher configuration `bunny` uses `mct.student = donner`.
 
-Old `hosts/bunnyXX.nix` files from the previous school year do not contain a
-`forgejo` field. They remain buildable with `mct.student = UNCONFIGURED`, but
-the MCT course repository deliberately refuses student commits in that state.
-Before creating new individualized student images, regenerate the host files
-from the current
-`rollout.csv`.
+`hosts/bunnyXX.nix` is generated data.  Before building the golden image,
+regenerate it from the current `rollout.csv`.  The generator removes stale
+`bunnyXX.nix` files automatically, and `flake.nix` discovers the remaining host
+files dynamically.  There is therefore only one active-VM list to maintain: the
+CSV.
 
 ## Safe Git defaults
 
@@ -155,21 +158,59 @@ Generate host files **before** individual student images are rebuilt:
 ./scripts/mct-vm.py generate-nix --csv rollout.csv --target-dir hosts
 ```
 
-`generate-nix` now requires these fields for every VM row:
+`generate-nix` uses active VM rows and requires:
 
 ```text
-vm, forgejo, name, email
+vm, course, forgejo, full_name, email
 ```
 
-It writes, for example:
+It also removes stale `hosts/bunnyXX.nix` files that no longer occur as active
+rows. It writes, for example:
 
 ```nix
 {
-  gitName  = "Anton Huber";
-  gitEmail = "anton.huber@example.invalid";
-  forgejo  = "huber";
+  gitName  = "Thomas Pabst";
+  gitEmail = "thomas.pabst@sabel.education";
+  forgejo  = "pabst";
+  course   = "I3A";
 }
 ```
+
+## First-boot bootstrap of NixOS-Bunny
+
+The public repository is cloned automatically on first boot:
+
+```text
+https://github.com/BerndDonner/NixOS-Bunny.git
+    -> /home/student/NixOS-Bunny
+```
+
+After a successful clone, `/etc/nixos` is replaced by a symlink to that working
+copy, so plain `sudo nixos-rebuild switch` uses the checked-out flake and the
+configuration matching the current hostname.  An existing clone is never
+automatically pulled or modified; the golden image remains a reviewed snapshot.
+
+The service can be inspected or retried with:
+
+```bash
+systemctl status mct-bootstrap-nixos-bunny.service
+sudo systemctl restart mct-bootstrap-nixos-bunny.service
+```
+
+## Copying the Arduino offline documentation tree
+
+The offline documentation is intentionally not a Nix input.  Its source root can
+be copied once into the golden VM over the already configured provisioning SSH:
+
+```bash
+./scripts/copy-home-tree.sh /path/to/source-root <VM-address>
+```
+
+The *contents* of that source root are extracted directly into `/home/student`,
+including hidden files and symlinks.  This is useful when the supplied directory
+tree already has exactly the layout that should appear below the student's home.
+
+VS Code extensions remain a deliberate one-time manual golden-image step.
 
 ## Current manual boundary
 

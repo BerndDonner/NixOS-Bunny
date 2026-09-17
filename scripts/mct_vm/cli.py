@@ -152,8 +152,8 @@ def build_parser(mode: ModeConfig) -> argparse.ArgumentParser:
         description=(
             "Generate bunnyXX.nix files from rollout.csv.\n"
             "This command is intentionally identical in classroom and lockdown mode.\n"
-            "It uses all VM rows, including commented rows.\n"
-            "Required fields per row: vm, forgejo, name, email.\n\n"
+            "It uses active VM rows only and removes stale bunnyXX.nix files.\n"
+            "Required fields per row: vm, course, forgejo, full_name, email.\n\n"
             "Example:\n"
             f"  {mode.program_name} generate-nix --target-dir hosts/bunnies\n"
         ),

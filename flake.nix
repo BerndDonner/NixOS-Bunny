@@ -15,11 +15,17 @@
 
       username = "student";
 
-      # Base VM list: bunny + bunny00..bunny11.
-      # The same host data is used for normal and lockdown configurations.
+      # The host files are generated from rollout.csv.  Discover exactly the
+      # active bunnyXX definitions instead of maintaining a second VM list here.
+      # bunny.nix remains the generic/golden configuration.
+      activeHostFiles =
+        lib.filter
+          (name: (builtins.match "bunny[0-9][0-9]\\.nix" name) != null)
+          (builtins.attrNames (builtins.readDir ./hosts));
+
       ids =
         [ "bunny" ]
-        ++ (map (n: "bunny" + (lib.fixedWidthNumber 2 n)) (lib.range 0 11));
+        ++ (map (name: lib.removeSuffix ".nix" name) activeHostFiles);
 
       hostFileFor = host:
         let p = ./hosts + ("/" + host + ".nix");
@@ -52,6 +58,7 @@
                 # Old host files without forgejo stay buildable but fail closed
                 # in the course hooks until regenerate-nix is run.
                 settings.mct.student = if h ? forgejo then h.forgejo else "UNCONFIGURED";
+                settings.mct.course = if h ? course then h.course else "UNCONFIGURED";
               };
             })
           ];

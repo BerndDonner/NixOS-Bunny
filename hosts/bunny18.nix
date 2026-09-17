@@ -2,5 +2,5 @@
   gitName  = "Dr. Bernd Donner";
   gitEmail = "Bernd.Donner@sabel.com";
   forgejo  = "donner";
-  course   = "I3A";
+  course   = "E3A";
 }

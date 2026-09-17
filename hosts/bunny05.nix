@@ -1,4 +1,6 @@
 {
-  gitName  = "Florian Kiehn";
-  gitEmail = "Florian.Kiehn@sabel.education";
+  gitName  = "Thomas Pabst";
+  gitEmail = "thomas.pabst@sabel.education";
+  forgejo  = "pabst";
+  course   = "I3A";
 }

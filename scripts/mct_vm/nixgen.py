@@ -15,31 +15,52 @@ def _nix_string(value: str) -> str:
 
 def generate_nix(*, csv_path: str, target_dir: str) -> int:
     doc = read_rollout_csv(csv_path)
-    rows = doc.all_vm_rows()
+    rows = doc.active_rows()
 
     if not rows:
-        print("WARN:  No VM rows found in rollout.csv")
+        print("WARN:  No active VM rows found in rollout.csv")
         return 0
 
-    out_dir = Path(target_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
+    # Validate everything before touching the target directory. This keeps a
+    # malformed CSV from deleting otherwise usable host definitions.
+    hosts: list[tuple[str, str]] = []
     for row in rows:
-        require_fields(row, ["vm", "forgejo", "name", "email"], command="generate-nix")
+        require_fields(
+            row,
+            ["vm", "course", "forgejo", "full_name", "email"],
+            command="generate-nix",
+        )
 
         vm = row.vm
+        course = row.raw["course"].strip()
         forgejo = row.raw["forgejo"].strip()
-        name = row.raw["name"].strip()
+        full_name = row.raw["full_name"].strip()
         email = row.raw["email"].strip()
 
         content = (
             "{\n"
-            f"  gitName  = {_nix_string(name)};\n"
+            f"  gitName  = {_nix_string(full_name)};\n"
             f"  gitEmail = {_nix_string(email)};\n"
             f"  forgejo  = {_nix_string(forgejo)};\n"
+            f"  course   = {_nix_string(course)};\n"
             "}\n"
         )
+        hosts.append((vm, content))
 
+    out_dir = Path(target_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    wanted = {f"{vm}.nix" for vm, _content in hosts}
+
+    # Host files are generated data. Remove bunnyXX definitions that are no
+    # longer active in rollout.csv, while keeping bunny.nix/default.nix and
+    # any unrelated files intact.
+    for old_path in sorted(out_dir.glob("bunny[0-9][0-9].nix")):
+        if old_path.name not in wanted:
+            old_path.unlink()
+            print(f"Removed stale {old_path}")
+
+    for vm, content in hosts:
         out_path = out_dir / f"{vm}.nix"
         out_path.write_text(content, encoding="utf-8")
         print(f"Wrote {out_path}")

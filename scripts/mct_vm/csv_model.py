@@ -9,7 +9,7 @@ from typing import Iterable
 
 VM_RE = re.compile(r"^bunny[0-9][0-9]$")
 
-CANONICAL_FIELDS = ["pcname", "vm", "forgejo", "name", "email", "file", "sha256"]
+CANONICAL_FIELDS = ["pcname", "vm", "course", "forgejo", "full_name", "email", "file", "sha256"]
 
 ALIASES = {
     "pc": "pcname",
@@ -17,11 +17,13 @@ ALIASES = {
     "host": "pcname",
     "computer": "pcname",
     "vm": "vm",
+    "course": "course",
+    "class": "course",
     "forgejo": "forgejo",
     "login": "forgejo",
-    "fullname": "name",
-    "full_name": "name",
-    "name": "name",
+    "fullname": "full_name",
+    "full_name": "full_name",
+    "name": "full_name",
     "email": "email",
     "file": "file",
     "filename": "file",
