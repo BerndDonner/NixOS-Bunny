@@ -99,8 +99,8 @@ windows_tools_dir = "tools"
 # ============================================================================
 
 [run]
-# Limit `clone` and `individualize` to these VM names, e.g. ["bunny06"].
-# Empty = all active VMs from the active rollout CSV.
+# Limit `clone`, `individualize` and `prepare-images` to these VM names,
+# e.g. ["bunny06"]. Empty = all active VMs from the active rollout CSV.
 only_vms = ["bunny12"]
 
 # Limit `rollout` to this Windows PC name. Empty = all active PCs.

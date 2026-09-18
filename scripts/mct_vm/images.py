@@ -103,16 +103,15 @@ def clone_images(cfg: AppConfig) -> int:
 
 
 def prepare_images(cfg: AppConfig) -> int:
-    doc = read_rollout_csv(cfg.assignments_file)
-    active = doc.active_rows()
-    if not active:
+    rows = _selected_rows(cfg)
+    if not rows:
         warn(f"No active VM rows found in {cfg.assignments_file}")
         return 0
 
     _need_cmd("qemu-img")
     _need_cmd("zstd")
 
-    for row in active:
+    for row in rows:
         require_fields(row, ["vm"], command="prepare-images")
         stem = f"{row.vm}{cfg.vm_suffix}"
         qcow2 = cfg.vm_images_dir / f"{stem}.qcow2"

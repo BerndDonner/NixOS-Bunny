@@ -252,7 +252,8 @@ active VMs. It is intentionally strict: an existing target image is an error,
 so an old VM can never be silently reused. For a deliberate replacement set
 `[run].recreate_existing_images = true` temporarily.
 
-`[run].only_vms = ["bunny06"]` can be used for a pilot clone/individualization.
+`[run].only_vms = ["bunny06"]` can be used for a pilot clone, individualization
+and deployment-image preparation.
 
 ### Phase 3 — individualize existing QCOW2 images
 
@@ -299,7 +300,8 @@ After all individualized QCOW2 images are complete:
 ./scripts/mct-vm.py rollout
 ```
 
-`prepare-images` converts QCOW2 -> VMDK -> VMDK.ZST. `update-csv` writes the
+`prepare-images` converts QCOW2 -> VMDK -> VMDK.ZST and honors
+`[run].only_vms`, so a single VM can be prepared for a pilot deployment. `update-csv` writes the
 compressed filenames and SHA256 values into the active rollout CSV and updates
 the mode-specific checksums file. `rollout` uses the values in `[rollout]` and
 the temporary controls in `[run]`.
