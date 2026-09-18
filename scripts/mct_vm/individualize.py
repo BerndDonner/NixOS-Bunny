@@ -131,16 +131,21 @@ fi
 
 cd "$repo_dir"
 
-if git remote get-url github >/dev/null 2>&1; then
-    git remote set-url github "$github_url"
-else
-    git remote add github "$github_url"
-fi
-
+# GitHub is only a bootstrap source. Ensure origin points at Forgejo, then
+# remove the bootstrap remote and any tracking metadata that clone may have
+# attached to master. The final VM must expose Forgejo only.
 if git remote get-url origin >/dev/null 2>&1; then
     git remote set-url origin "$forgejo_url"
 else
     git remote add origin "$forgejo_url"
+fi
+
+if [[ "$(git config --local --get branch.master.remote 2>/dev/null || true)" == "github" ]]; then
+    git config --local --unset-all branch.master.remote 2>/dev/null || true
+    git config --local --unset-all branch.master.merge 2>/dev/null || true
+fi
+if git remote get-url github >/dev/null 2>&1; then
+    git remote remove github
 fi
 
 # Guard against provisioning from an old course repository. Continue belongs to
@@ -181,8 +186,7 @@ course=$2
 student=$3
 full_name=$4
 email=$5
-github_url=$6
-forgejo_url=$7
+forgejo_url=$6
 
 repo="MCT_${course}"
 repo_dir="$HOME/$repo"
@@ -211,8 +215,15 @@ if [[ "$student" == "donner" ]]; then
     expected_branch=master
 fi
 [[ "$(git branch --show-current)" == "$expected_branch" ]] || fail "wrong Git branch"
-[[ "$(git remote get-url github)" == "$github_url" ]] || fail "wrong github remote URL"
+if git remote get-url github >/dev/null 2>&1; then
+    fail "GitHub bootstrap remote is still present"
+fi
+[[ "$(git remote)" == "origin" ]] || fail "finished repository must contain only the Forgejo origin remote"
 [[ "$(git remote get-url origin)" == "$forgejo_url" ]] || fail "wrong origin remote URL"
+# No branch in any finished VM may still track the removed GitHub remote.
+if git config --local --get-regexp '^branch\..*\.remote$' 2>/dev/null | grep -Eq '[[:space:]]github$'; then
+    fail "branch tracking metadata still refers to removed GitHub remote"
+fi
 [[ "$(git config --local --get core.hooksPath 2>/dev/null || true)" == "_config/hooks" ]] || fail "course hooks are not active"
 git config --local --get-all include.path | grep -Fxq '../_config/gitconfig' || fail "course gitconfig include is missing"
 [[ -f .vscode/settings.json ]] || fail ".vscode/settings.json is missing"
@@ -376,7 +387,7 @@ def individualize_images(cfg: AppConfig) -> int:
 
             print(f"[{vm}] validating image...")
             _run_logged(
-                remote_script_command(cfg.preparation_host_key, [vm, course, student, full_name, email, github_url, forgejo_url]),
+                remote_script_command(cfg.preparation_host_key, [vm, course, student, full_name, email, forgejo_url]),
                 log_path=vm_log,
                 input_text=_validate_script(),
             )

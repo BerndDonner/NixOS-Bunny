@@ -236,7 +236,7 @@ def prepare_golden(cfg: AppConfig) -> int:
     print(f"  image                 : {cfg.golden_image}")
     print(f"  UEFI state            : {cfg.golden_vars}")
     print(f"  student home content  : {cfg.student_home_content or '(none)'}")
-    print(f"  browser start page    : {cfg.browser_start_page}")
+    print("  browser start page    : deliberately deferred to finalize-golden")
     print("  Continue config       : deliberately NOT installed in this step")
 
     if cfg.run.dry_run:
@@ -267,10 +267,6 @@ def prepare_golden(cfg: AppConfig) -> int:
         else:
             print("No student_home_content configured; overlay skipped.")
 
-        _configure_browser_start_page(
-            start_page=cfg.browser_start_page, key=cfg.preparation_host_key
-        )
-
         if not cfg.golden_vars.is_file():
             raise FileNotFoundError(f"QEMU did not create the expected UEFI state: {cfg.golden_vars}")
 
@@ -295,6 +291,7 @@ def finalize_golden(cfg: AppConfig) -> int:
     print("Phase 2b — finalize golden image")
     print(f"  image                 : {cfg.golden_image}")
     print(f"  Continue config       : {cfg.final_continue_config}")
+    print(f"  browser start page    : {cfg.browser_start_page}")
     print(f"  optimize image size   : {cfg.optimize_image_size}")
 
     if cfg.run.dry_run:
@@ -320,6 +317,14 @@ def finalize_golden(cfg: AppConfig) -> int:
     try:
         verify_ssh_login(cfg.preparation_host_key)
         _install_final_continue_config(cfg)
+        # Chrome is configured only after the deliberate manual phase. During
+        # that phase the preparation user may sign in, test sites and finally
+        # wipe the Chrome profile to remove passwords/cookies/history. Applying
+        # the managed offline start page here guarantees that cleanup cannot
+        # remove the final browser configuration.
+        _configure_browser_start_page(
+            start_page=cfg.browser_start_page, key=cfg.preparation_host_key
+        )
         _optimize_image_size(cfg)
         print("Shutting down golden image cleanly...")
         if qemu is not None:

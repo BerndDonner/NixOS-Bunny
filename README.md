@@ -197,14 +197,17 @@ the preparation-host private key is selected by
 - includes hidden regular files, preserves unrelated guest files, and ignores
   symlinks/empty directories;
 - **never** copies `.continue/config.yaml`;
-- configures Chrome to open exactly `[golden_image].browser_start_page`;
+- deliberately does **not** set the final Chrome start page yet;
 - leaves the VM running for manual work.
 
 The old `scripts/copy-home-tree.sh` has been absorbed into this command.
 
 Now perform the deliberate manual golden-image work, especially installing and
 starting the VS Code extensions/Continue so they can create whatever initial
-state they need.
+state they need. Chrome may also be used freely during this phase. Before
+finalization, remove the Chrome profile/state you do not want in the golden image
+(e.g. passwords, cookies, logins and history); the final offline start page is
+installed only afterwards by `finalize-golden`.
 
 ### Phase 2b — finalize the golden image
 
@@ -221,9 +224,11 @@ Finalization:
 1. installs the authoritative `assets/continue/config.yaml` as
    `~/.continue/config.yaml` **after** Continue has been installed/started;
 2. verifies the copied Continue configuration;
-3. optionally optimizes image size (`[images].optimize_image_size`; currently
+3. verifies `[golden_image].browser_start_page` and installs the final managed
+   Chrome policy **after** all manual Chrome use/cleanup;
+4. optionally optimizes image size (`[images].optimize_image_size`; currently
    implemented with guest `fstrim` plus QEMU discard);
-4. shuts the VM down cleanly.
+5. shuts the VM down cleanly.
 
 ### Host generation
 
@@ -263,8 +268,11 @@ already cloned `bunnyXX.qcow2` images. For each selected classroom VM it:
 3. runs `nixos-rebuild switch --flake ...#bunnyXX`;
 4. reboots the guest into that individualized generation and verifies that the
    running hostname is now `bunnyXX`;
-5. clones the public GitHub course mirror without student credentials;
-6. configures Forgejo as `origin` without contacting or logging into Forgejo;
+5. clones the public GitHub course mirror as a temporary bootstrap source,
+   without student credentials;
+6. configures Forgejo as the only final remote (`origin`) without contacting or
+   logging into Forgejo, then removes the temporary GitHub remote and any GitHub
+   tracking metadata; this applies to student **and** teacher VMs;
 7. creates/selects the student's local branch (teacher remains on `master`);
 8. runs the course repository `_config/setup.sh` for hooks and VS Code read-only
    protection;

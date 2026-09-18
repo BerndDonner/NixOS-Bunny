@@ -48,10 +48,12 @@ file = "golden-26.05.qcow2"
 # Leave empty if there is currently nothing to overlay.
 student_home_content = "~/VirtualMashines/bunny-files-to-copy"
 
-# Page Chrome shall open when the prepared VM starts. This is a path inside
-# the guest, not on the preparation host. `prepare-golden` verifies that the
-# file exists after student_home_content has been copied and then configures a
-# managed Chrome policy for exactly this page. No automatic index.html search.
+# Page Chrome shall open in the finished golden image. This is a path inside
+# the guest, not on the preparation host. `finalize-golden` verifies that the
+# file exists and then configures a managed Chrome policy for exactly this page.
+# This intentionally happens AFTER manual Chrome use/cleanup, so passwords,
+# cookies and browsing state can be wiped first without losing the final start
+# page. No automatic index.html search.
 browser_start_page = "~/reference/www.arduino.cc/en/Reference/HomePage.html"
 
 [provisioning]
@@ -68,8 +70,9 @@ preparation_host_key = "~/.ssh/mct-vm-setup"
 optimize_image_size = true
 
 [courses]
-# Public source used to bootstrap MCT_I3A / MCT_E3A without student credentials.
-# {repo} expands to MCT_<course>; {course} is also available.
+# Public source used only to bootstrap MCT_I3A / MCT_E3A without credentials.
+# {repo} expands to MCT_<course>; {course} is also available. The GitHub remote
+# is removed again during individualization; finished VMs expose Forgejo only.
 public_source = "https://github.com/BerndDonner/{repo}.git"
 
 # Forgejo remote configured as `origin`. Individualization does NOT log in or
@@ -113,7 +116,7 @@ keep_failed_vm_running = false
 # Allow `clone` to replace already existing bunnyXX image + UEFI-state files.
 # false is intentionally strict: existing targets cause an error instead of
 # silently reusing an old VM.
-recreate_existing_images = false
+recreate_existing_images = true
 
 # Force rollout even when the target marker says the compressed image is current.
 redeploy_even_if_current = false
