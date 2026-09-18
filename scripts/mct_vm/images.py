@@ -48,9 +48,20 @@ def clone_images(
     golden_qcow2: str,
     golden_vars: str,
     vm_suffix: str = "",
+    only_vms: set[str] | frozenset[str] | None = None,
 ) -> int:
     doc = read_rollout_csv(csv_path)
     active = doc.active_rows()
+
+    if only_vms:
+        active_by_vm = {row.vm: row for row in active}
+        missing = sorted(set(only_vms) - set(active_by_vm))
+        if missing:
+            raise ValueError(
+                "clone: --only contains VM(s) that are not active in "
+                f"{csv_path}: {', '.join(missing)}"
+            )
+        active = [row for row in active if row.vm in only_vms]
 
     if not active:
         warn(f"No active VM rows found in {csv_path}")

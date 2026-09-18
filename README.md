@@ -161,12 +161,77 @@ cleanly and keep the resulting QCOW2 as the finished golden image.
 
 ### Phase 3 — create and finish the host-specific QCOW2 images
 
-Clone the finished golden QCOW2 for every active `bunnyXX`, then individualize
-each clone with its generated host configuration.  Boot/rebuild/test those
-images while they are still QCOW2 files.  At the end of phase 3, every
-student/teacher image must already be complete and usable in QCOW2 form.
+Phase 3 is automated by `mct-vm.py`. Host files are deliberately **not**
+regenerated here; `hosts/bunnyXX.nix` must already be reviewed and match
+`rollout.csv`.
 
-Only **after** phase 3 does rollout begin.  The rollout tooling performs any
+To clone missing images from the finished golden QCOW2 and fully individualize
+them in one pass:
+
+```bash
+./scripts/mct-vm.py phase3 --image-dir images
+```
+
+For the first real run, select one VM first:
+
+```bash
+./scripts/mct-vm.py phase3 --image-dir images --only bunny02
+```
+
+If the `bunnyXX.qcow2` files already exist, skip the clone step explicitly:
+
+```bash
+./scripts/mct-vm.py individualize --image-dir images
+```
+
+The automated individualization runs sequentially. For every selected active
+VM it:
+
+1. starts the QCOW2 headless with a localhost-only SSH forward;
+2. waits for the provisioning SSH key;
+3. copies the already reviewed local `hosts/bunnyXX.nix` into the guest checkout
+   (it does **not** regenerate the file);
+4. runs `sudo nixos-rebuild switch --flake path:/home/student/NixOS-Bunny#bunnyXX`;
+5. verifies hostname, human Git identity, `mct.student` and `mct.course`;
+6. clones the matching public GitHub course mirror as remote `github`;
+7. configures Forgejo HTTPS as remote `origin` **without contacting Forgejo**;
+8. creates/selects the local student branch from `master` (teacher stays on
+   `master`);
+9. runs the course repository `_config/setup.sh`;
+10. creates a KDE autostart entry so VS Code opens the correct course folder;
+11. configures Chrome homepage/startup to the offline documentation;
+12. validates the course hooks, VS Code protection, remotes and branch state;
+13. runs `fstrim` and powers the guest off cleanly.
+
+Student branches are intentionally left without an upstream. The first Forgejo
+contact remains the student's own:
+
+```bash
+git pub
+```
+
+That creates `origin/<forgejo-login>` and sets the upstream. No student
+credentials are used during image creation.
+
+Continue configuration is deliberately outside phase 3: it is neither copied,
+created, overwritten nor deleted.
+
+By default the Chrome start page is auto-detected as `index.html`/`index.htm`
+below `/home/student/reference`; if no HTML entry point exists, Chrome opens the
+`reference/` directory itself. If the documentation has a different preferred
+entry point, specify it explicitly, for example:
+
+```bash
+./scripts/mct-vm.py individualize --image-dir images \
+  --chrome-start-page /home/student/reference/path/to/start.html
+```
+
+The SSH command runs in batch mode. Load the provisioning key once into
+`ssh-agent` before a full batch, or provide a key path with `--ssh-key`. Each run
+writes per-VM logs below `logs/individualize-<timestamp>/`. On failure the VM is
+stopped by default; `--keep-on-error` leaves it running for inspection.
+
+Only **after** phase 3 does rollout begin. The rollout tooling performs any
 required target-format conversion (for example for VMware) and deployment;
 conversion is not an image-preparation step.
 
@@ -232,10 +297,10 @@ be copied once into the golden VM over the already configured provisioning SSH:
 The regular files below that source root are overlaid directly onto
 `/home/student`. Hidden files and files below hidden directories are included.
 Existing directories are kept; unrelated destination contents are never deleted,
-and symlinks/empty directories are not copied.  Existing regular files are
-overwritten except for `~/.continue/config.yaml`, which is installed only if no
-file already exists there; otherwise the script prints a warning and leaves the
-existing Continue config untouched.
+and symlinks/empty directories are not copied. Existing regular files are
+overwritten except for `~/.continue/config.yaml`, which is deliberately never
+copied by this script. Continue configuration is managed independently from the
+home-tree overlay.
 
 VS Code extensions remain a deliberate one-time manual golden-image step.
 
@@ -257,11 +322,9 @@ Phase 2 (QCOW2)
   -> finished golden QCOW2
 
 Phase 3 (QCOW2)
-  -> clone golden QCOW2 to bunnyXX QCOW2 images
-  -> boot each bunnyXX image
-  -> sudo nixos-rebuild switch --flake .#bunnyXX
-  -> perform remaining host/course provisioning
-  -> test and shut down
+  -> ./scripts/mct-vm.py phase3
+  -> clone missing golden QCOW2 to bunnyXX QCOW2 images
+  -> automated boot/rebuild/course provisioning/validation/shutdown
   -> finished bunnyXX QCOW2 images
 
 Rollout (only now)
@@ -269,10 +332,9 @@ Rollout (only now)
   -> deploy them
 ```
 
-The repetitive clone/boot/rebuild/provision/test/shutdown work in phase 3 is the
-next automation step.  The rollout script must never be used as a substitute for
-finishing an image: it receives already complete QCOW2 images and only then
-handles conversion/deployment.
+The rollout script must never be used as a substitute for finishing an image:
+it receives already complete QCOW2 images and only then handles
+conversion/deployment.
 
 ## Main files
 
@@ -282,5 +344,6 @@ handles conversion/deployment.
 - `modules/home/modules/git.nix` — global Git defaults and recovery aliases
 - `hosts/*.nix` — host-specific Git identity
 - `scripts/mct_vm/nixgen.py` — generates host identities from rollout CSV
-- `scripts/mct-vm.py` — classroom image/rollout helper
+- `scripts/mct_vm/individualize.py` — automated classroom phase-3 provisioning
+- `scripts/mct-vm.py` — classroom image/phase-3/rollout helper
 - `scripts/mct-vm-lockdown.py` — lockdown image/rollout helper

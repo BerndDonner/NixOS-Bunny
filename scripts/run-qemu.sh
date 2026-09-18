@@ -35,6 +35,8 @@ Options:
   --port <PORT>         Host port for --ssh (default: 2222)
                         Valid only together with --ssh
   --share <DIRECTORY>   Share one host directory with the VM via virtio-9p
+  --headless            Run without an SDL window (for automated provisioning)
+  --discard             Pass guest discard/TRIM through to the qcow2 image
 
   --no-kvm              Disable KVM and use QEMU software emulation
   --dry-run             Print the resulting QEMU command and exit
@@ -224,6 +226,8 @@ SSH_PORT="${SSH_PORT:-$DEFAULT_SSH_PORT}"
 ARDUINO=0
 SSH_ENABLED=0
 SHARE_DIR=""
+HEADLESS=0
+DISCARD=0
 NO_KVM=0
 DRY_RUN=0
 HELP_REQUESTED=0
@@ -284,6 +288,16 @@ while [[ $# -gt 0 ]]; do
         shift
       fi
       HELP_SHARE=1
+      ;;
+
+    --headless)
+      HEADLESS=1
+      shift
+      ;;
+
+    --discard)
+      DISCARD=1
+      shift
       ;;
 
     --no-kvm)
@@ -424,6 +438,11 @@ if [[ "$SSH_ENABLED" -eq 1 ]]; then
   NETDEV+=",hostfwd=tcp:127.0.0.1:${SSH_PORT}-:22"
 fi
 
+DISK_DRIVE="file=$DISK_QCOW2,if=virtio,format=qcow2"
+if [[ "$DISCARD" -eq 1 ]]; then
+  DISK_DRIVE+=",discard=unmap,detect-zeroes=unmap"
+fi
+
 QEMU_CMD=(
   qemu-system-x86_64
   "${ACCEL_ARGS[@]}"
@@ -433,11 +452,24 @@ QEMU_CMD=(
   -boot order=c
   -device qemu-xhci,id=xhci
   -device usb-tablet,bus=xhci.0
-  -device virtio-vga-gl
-  -display sdl,gl=on
+)
+
+if [[ "$HEADLESS" -eq 1 ]]; then
+  QEMU_CMD+=(
+    -device virtio-vga
+    -display none
+  )
+else
+  QEMU_CMD+=(
+    -device virtio-vga-gl
+    -display sdl,gl=on
+  )
+fi
+
+QEMU_CMD+=(
   -netdev "$NETDEV"
   -device virtio-net-pci,netdev=n1
-  -drive "file=$DISK_QCOW2,if=virtio,format=qcow2"
+  -drive "$DISK_DRIVE"
   -drive "if=pflash,format=raw,readonly=on,file=$OVMF_CODE"
   -drive "if=pflash,format=raw,file=$VARS_FD"
 )

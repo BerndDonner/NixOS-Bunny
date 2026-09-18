@@ -11,14 +11,24 @@ Before building/reviewing the golden image:
    `mct-bootstrap-nixos-bunny.service` clones the public NixOS-Bunny repository
    into /home/student/NixOS-Bunny and links /etc/nixos to it.
 4. Copy the externally supplied Arduino offline-documentation home tree with
-   `scripts/copy-home-tree.sh`.
+   `scripts/copy-home-tree.sh`. The script never copies ~/.continue/config.yaml.
 5. Install the selected VS Code extensions manually (one-time golden step).
 6. Verify Git/libsecret/KWallet behaviour before freezing the golden image.
 
-Explicitly out of scope for now:
+Phase 3 is now automated:
 
-- `arduino-cli.yaml` in the MCT template is unused/trash for the current setup;
-  do not make golden-image work depend on it.
+- `./scripts/mct-vm.py phase3 --image-dir images` clones missing bunnyXX images
+  and performs boot/rebuild/course provisioning/validation/shutdown.
+- Use `--only bunnyXX` for the first test run.
+- Host files are NOT regenerated automatically during phase 3.
+- No student Forgejo credentials are used; students publish their branch later
+  with `git pub`.
+- Continue configuration is deliberately untouched during phase 3.
+
+Still deliberately outside the golden image:
+
+- `arduino-cli.yaml` in the MCT template is unused/trash and must not be used.
 - Class-repository clone/branch selection and student-specific VS Code settings
-  happen only after the golden image is cloned into bunnyXX VMs.
-- Rollout and lockdown-image automation come later.
+  happen only after the golden image is cloned into bunnyXX VMs (automated by
+  phase3).
+- Rollout begins only after the individualized QCOW2 images are complete.

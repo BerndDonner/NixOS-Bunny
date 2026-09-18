@@ -5,6 +5,15 @@ import sys
 
 from . import rollout as rollout_module
 from .images import clone_images, prepare_images, update_csv
+from .individualize import (
+    DEFAULT_FORGEJO_URL_TEMPLATE,
+    DEFAULT_GITHUB_URL_TEMPLATE,
+    DEFAULT_SHUTDOWN_TIMEOUT,
+    DEFAULT_SSH_PORT,
+    DEFAULT_SSH_TIMEOUT,
+    IndividualizeOptions,
+    individualize_images,
+)
 from .mode import CLASSROOM_MODE, LOCKDOWN_MODE, ModeConfig
 from .nixgen import generate_nix
 
@@ -35,6 +44,149 @@ def run_integrated_rollout(argv: list[str], mode: ModeConfig) -> int:
         return 1
 
 
+def _parse_only(values: list[str] | None) -> frozenset[str]:
+    result: set[str] = set()
+    for value in values or []:
+        for item in value.split(","):
+            item = item.strip()
+            if item:
+                result.add(item)
+    return frozenset(result)
+
+
+def _add_individualize_options(parser: argparse.ArgumentParser, mode: ModeConfig) -> None:
+    add_common_csv_image_options(parser, mode)
+    parser.add_argument(
+        "--only",
+        action="append",
+        default=[],
+        metavar="VM[,VM...]",
+        help="Process only selected active VM(s); may be repeated",
+    )
+    parser.add_argument(
+        "--ssh-port",
+        type=int,
+        default=DEFAULT_SSH_PORT,
+        help=f"Host TCP port forwarded to guest SSH (default: {DEFAULT_SSH_PORT})",
+    )
+    parser.add_argument(
+        "--ssh-key",
+        help=(
+            "Provisioning private key. If omitted, ssh-agent/default identities are used. "
+            "For unattended runs, load the key once with ssh-add."
+        ),
+    )
+    parser.add_argument(
+        "--ssh-timeout",
+        type=int,
+        default=DEFAULT_SSH_TIMEOUT,
+        help=f"Seconds to wait for guest SSH (default: {DEFAULT_SSH_TIMEOUT})",
+    )
+    parser.add_argument(
+        "--shutdown-timeout",
+        type=int,
+        default=DEFAULT_SHUTDOWN_TIMEOUT,
+        help=f"Seconds to wait for QEMU after guest poweroff (default: {DEFAULT_SHUTDOWN_TIMEOUT})",
+    )
+    parser.add_argument(
+        "--qemu-script",
+        help="Path to run-qemu.sh (default: scripts/run-qemu.sh next to mct_vm package)",
+    )
+    parser.add_argument(
+        "--logs-dir",
+        default="logs",
+        help="Directory for phase-3 logs (default: logs)",
+    )
+    parser.add_argument(
+        "--github-url-template",
+        default=DEFAULT_GITHUB_URL_TEMPLATE,
+        help=(
+            "Public bootstrap URL template; placeholders: {repo}, {course}. "
+            f"Default: {DEFAULT_GITHUB_URL_TEMPLATE}"
+        ),
+    )
+    parser.add_argument(
+        "--forgejo-url-template",
+        default=DEFAULT_FORGEJO_URL_TEMPLATE,
+        help=(
+            "Forgejo origin URL template; only configured, never contacted during phase 3. "
+            "Placeholders: {repo}, {course}. "
+            f"Default: {DEFAULT_FORGEJO_URL_TEMPLATE}"
+        ),
+    )
+    parser.add_argument(
+        "--chrome-start-page",
+        default="auto",
+        metavar="auto|none|PATH|URL",
+        help=(
+            "Chrome homepage/startup page. 'auto' finds index.html below ~/reference; "
+            "'none' skips Chrome policy (default: auto)."
+        ),
+    )
+    parser.add_argument(
+        "--no-vscode-autostart",
+        action="store_true",
+        help="Do not create KDE autostart entry that opens the student's course folder in VS Code",
+    )
+    parser.add_argument(
+        "--no-trim",
+        action="store_true",
+        help="Skip final guest fstrim (QEMU discard is enabled by default)",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate CSV selection and print the plan without starting or modifying VMs",
+    )
+    parser.add_argument(
+        "--keep-on-error",
+        action="store_true",
+        help="Leave the failed QEMU guest running for manual inspection instead of stopping it",
+    )
+
+
+def _individualize_from_args(args: argparse.Namespace, mode: ModeConfig) -> int:
+    options = IndividualizeOptions(
+        csv_path=args.csv,
+        image_dir=args.image_dir,
+        vm_suffix=mode.vm_suffix,
+        only_vms=_parse_only(args.only),
+        ssh_port=args.ssh_port,
+        ssh_key=args.ssh_key,
+        ssh_timeout=args.ssh_timeout,
+        shutdown_timeout=args.shutdown_timeout,
+        qemu_script=args.qemu_script,
+        logs_dir=args.logs_dir,
+        github_url_template=args.github_url_template,
+        forgejo_url_template=args.forgejo_url_template,
+        chrome_start_page=args.chrome_start_page,
+        vscode_autostart=not args.no_vscode_autostart,
+        trim=not args.no_trim,
+        dry_run=args.dry_run,
+        keep_on_error=args.keep_on_error,
+    )
+    return individualize_images(options)
+
+
+def _phase3_from_args(args: argparse.Namespace, mode: ModeConfig) -> int:
+    only = _parse_only(args.only)
+
+    if args.dry_run:
+        return _individualize_from_args(args, mode)
+
+    clone_rc = clone_images(
+        csv_path=args.csv,
+        image_dir=args.image_dir,
+        golden_qcow2=args.golden_qcow2,
+        golden_vars=args.golden_vars,
+        vm_suffix=mode.vm_suffix,
+        only_vms=only,
+    )
+    if clone_rc != 0:
+        return clone_rc
+    return _individualize_from_args(args, mode)
+
+
 def build_parser(mode: ModeConfig) -> argparse.ArgumentParser:
     lockdown_note = ""
     if mode.name == "lockdown":
@@ -58,9 +210,12 @@ def build_parser(mode: ModeConfig) -> argparse.ArgumentParser:
             f"{lockdown_note}\n"
             "Typical workflow:\n"
             f"  {mode.program_name} generate-nix --target-dir hosts\n"
-            f"  {mode.program_name} clone\n"
-            "  # boot each VM and run the matching nixos-rebuild inside it\n"
-            f"  {mode.program_name} prepare-images\n"
+            + (
+                f"  {mode.program_name} phase3\n"
+                if mode.name == "classroom"
+                else f"  {mode.program_name} clone\n"
+            )
+            + f"  {mode.program_name} prepare-images\n"
             f"  {mode.program_name} update-csv\n"
             f"  {mode.program_name} rollout --dry-run\n"
             f"  {mode.program_name} rollout\n"
@@ -90,6 +245,13 @@ def build_parser(mode: ModeConfig) -> argparse.ArgumentParser:
         default=mode.golden_vars,
         help=f"Golden OVMF vars file (default: {mode.golden_vars})",
     )
+    p_clone.add_argument(
+        "--only",
+        action="append",
+        default=[],
+        metavar="VM[,VM...]",
+        help="Clone only selected active VM(s); may be repeated",
+    )
     p_clone.set_defaults(
         func=lambda a: clone_images(
             csv_path=a.csv,
@@ -97,8 +259,50 @@ def build_parser(mode: ModeConfig) -> argparse.ArgumentParser:
             golden_qcow2=a.golden_qcow2,
             golden_vars=a.golden_vars,
             vm_suffix=mode.vm_suffix,
+            only_vms=_parse_only(a.only),
         )
     )
+
+    if mode.name == "classroom":
+        p_individualize = sub.add_parser(
+            "individualize",
+            help="Fully provision/test/shut down active bunnyXX QCOW2 images over SSH",
+            description=(
+                "Automate the remaining phase-3 work for already cloned classroom QCOW2 images.\n"
+                "For every selected active VM it starts QEMU headless, waits for provisioning SSH,\n"
+                "runs nixos-rebuild for .#bunnyXX, configures the course repository without\n"
+                "Forgejo credentials, prepares the local student branch, runs _config/setup.sh,\n"
+                "sets VS Code course autostart and the Chrome offline-doc start page, validates\n"
+                "the result, trims free blocks and powers the guest off cleanly.\n\n"
+                "Student branches remain unpublished. The first Forgejo contact is still the\n"
+                "student's own `git pub`. Continue configuration is deliberately untouched."
+            ),
+        )
+        _add_individualize_options(p_individualize, mode)
+        p_individualize.set_defaults(func=lambda a: _individualize_from_args(a, mode))
+
+        p_phase3 = sub.add_parser(
+            "phase3",
+            help="Clone missing classroom QCOW2 images and fully individualize them",
+            description=(
+                "Complete classroom phase 3 in one command: clone missing bunnyXX images from\n"
+                "the finished golden QCOW2, then run the full `individualize` workflow.\n"
+                "Existing bunnyXX images are intentionally not overwritten. generate-nix is NOT\n"
+                "run automatically; host files must already be reviewed/generated."
+            ),
+        )
+        _add_individualize_options(p_phase3, mode)
+        p_phase3.add_argument(
+            "--golden-qcow2",
+            default=mode.golden_qcow2,
+            help=f"Golden qcow2 image (default: {mode.golden_qcow2})",
+        )
+        p_phase3.add_argument(
+            "--golden-vars",
+            default=mode.golden_vars,
+            help=f"Golden OVMF vars file (default: {mode.golden_vars})",
+        )
+        p_phase3.set_defaults(func=lambda a: _phase3_from_args(a, mode))
 
     p_prepare = sub.add_parser(
         "prepare-images",

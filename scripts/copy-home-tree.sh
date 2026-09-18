@@ -13,9 +13,8 @@ Semantics:
   - only regular files are copied (no symlinks, no empty directories);
   - missing parent directories are created as needed;
   - existing directories are kept and their other contents are never deleted;
-  - existing files are overwritten, except ~/.continue/config.yaml;
-  - ~/.continue/config.yaml is copied only when it does not already exist.
-    If it exists, the script prints a warning and leaves it untouched.
+  - existing regular files are overwritten;
+  - ~/.continue/config.yaml is deliberately never copied by this script.
 
 Options:
   --key PRIVATE_KEY
@@ -152,28 +151,16 @@ fi
 # Copy only regular files. Using find means dotfiles/dot-directories are
 # included automatically. Directory entries themselves are deliberately not
 # archived, so existing directory metadata/content is not replaced or pruned.
-# The Continue config is handled separately below.
+# Continue configuration is intentionally outside this workflow.  Even when a
+# source tree contains .continue/config.yaml, never copy it into the VM.
 (
   cd "$source_root"
   find . -type f ! -path "./$continue_config" -print0 \
     | tar --null --files-from=- -cf -
 ) | "${ssh_cmd[@]}" 'tar -C "$HOME" -xf -'
 
-# Continue creates a default ~/.continue/config.yaml on first use. We do not
-# want to overwrite that silently: for the golden-image workflow the default
-# file should be deleted intentionally first. Then rerunning this script will
-# install the prepared config.yaml from SOURCE_ROOT.
 if [[ -f "$source_root/$continue_config" ]]; then
-  if "${ssh_cmd[@]}" 'test -e "$HOME/.continue/config.yaml"'; then
-    echo "WARNING: $remote:~/.continue/config.yaml already exists; leaving it untouched." >&2
-    echo "         Delete the default config intentionally and rerun this script to install the prepared one." >&2
-  else
-    echo "Installing prepared ~/.continue/config.yaml"
-    (
-      cd "$source_root"
-      tar -cf - "$continue_config"
-    ) | "${ssh_cmd[@]}" 'tar -C "$HOME" -xf -'
-  fi
+  echo "INFO: skipping $continue_config by policy." >&2
 fi
 
 echo "Done. No remote files or directories were deleted."
