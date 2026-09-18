@@ -101,7 +101,7 @@ windows_tools_dir = "tools"
 [run]
 # Limit `clone` and `individualize` to these VM names, e.g. ["bunny06"].
 # Empty = all active VMs from the active rollout CSV.
-only_vms = []
+only_vms = ["bunny12"]
 
 # Limit `rollout` to this Windows PC name. Empty = all active PCs.
 only_pc = ""
@@ -116,7 +116,7 @@ keep_failed_vm_running = false
 # Allow `clone` to replace already existing bunnyXX image + UEFI-state files.
 # false is intentionally strict: existing targets cause an error instead of
 # silently reusing an old VM.
-recreate_existing_images = true
+recreate_existing_images = false
 
 # Force rollout even when the target marker says the compressed image is current.
 redeploy_even_if_current = false
