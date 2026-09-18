@@ -261,14 +261,15 @@ already cloned `bunnyXX.qcow2` images. For each selected classroom VM it:
 1. boots the existing QCOW2 headless and waits for provisioning SSH;
 2. copies the already reviewed `hosts/bunnyXX.nix` into the guest checkout;
 3. runs `nixos-rebuild switch --flake ...#bunnyXX`;
-4. verifies hostname and Git/MCT identity;
+4. reboots the guest into that individualized generation and verifies that the
+   running hostname is now `bunnyXX`;
 5. clones the public GitHub course mirror without student credentials;
 6. configures Forgejo as `origin` without contacting or logging into Forgejo;
 7. creates/selects the student's local branch (teacher remains on `master`);
 8. runs the course repository `_config/setup.sh` for hooks and VS Code read-only
    protection;
-9. validates the resulting repository/branch state and the finalized Continue
-   config;
+9. validates hostname, Git/MCT identity, repository/branch state and the finalized
+   Continue config;
 10. optionally optimizes image size;
 11. shuts down cleanly.
 

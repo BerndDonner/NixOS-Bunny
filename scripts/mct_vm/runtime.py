@@ -158,6 +158,51 @@ def verify_ssh_login(key: Path) -> None:
         )
 
 
+def wait_for_ssh_service_down(
+    *, qemu: subprocess.Popen[bytes] | None, timeout: int = 60
+) -> None:
+    """Wait until the guest has actually stopped serving SSH.
+
+    This is needed around an in-guest reboot. QEMU's host-forwarded port remains
+    bound for the lifetime of the QEMU process, so a listening host port alone
+    cannot tell us whether the guest is down.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if qemu is not None:
+            rc = qemu.poll()
+            if rc is not None:
+                raise RuntimeError(f"QEMU exited while waiting for guest reboot (exit {rc})")
+        if not _read_ssh_banner_once(timeout=1.0).startswith("SSH-"):
+            return
+        time.sleep(1)
+    raise TimeoutError(f"Guest SSH did not go down within {timeout}s after reboot request")
+
+
+def reboot_guest(
+    *,
+    key: Path,
+    qemu: subprocess.Popen[bytes],
+    down_timeout: int = 60,
+    up_timeout: int = SSH_READY_TIMEOUT,
+) -> None:
+    """Reboot the guest and wait for a complete down/up SSH cycle.
+
+    ``nixos-rebuild switch`` can write a new hostname without changing the
+    running kernel's hostname. Phase 3 therefore needs a real reboot before
+    provisioning and validation continue.
+    """
+    subprocess.run(
+        [*ssh_base(key), "sudo systemctl reboot"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    wait_for_ssh_service_down(qemu=qemu, timeout=down_timeout)
+    wait_for_ssh_service(qemu=qemu, timeout=up_timeout)
+    verify_ssh_login(key)
+
+
 def remote_script_command(key: Path, args: list[str]) -> list[str]:
     quoted = " ".join(shlex.quote(arg) for arg in args)
     return [*ssh_base(key), f"bash -s -- {quoted}"]

@@ -10,6 +10,7 @@ from .config import AppConfig, REPO_ROOT
 from .csv_model import CsvRow, read_rollout_csv, require_fields
 from .runtime import (
     poweroff_guest,
+    reboot_guest,
     remote_script_command,
     ssh_base,
     start_qemu,
@@ -346,8 +347,25 @@ def individualize_images(cfg: AppConfig) -> int:
                 log_path=vm_log,
             )
 
-            wait_for_ssh_service(qemu=qemu)
-            verify_ssh_login(cfg.preparation_host_key)
+            # A switch writes the new /etc/hostname, but the running kernel may
+            # still report the generic golden-image hostname ("bunny"). Reboot
+            # before any course provisioning so we both activate and test the
+            # host-specific system generation.
+            print(f"[{vm}] rebooting into the individualized NixOS generation...")
+            _append_log(vm_log, "$ sudo systemctl reboot")
+            reboot_guest(key=cfg.preparation_host_key, qemu=qemu)
+
+            hostname_proc = _run_logged(
+                [*ssh_base(cfg.preparation_host_key), "hostname"],
+                log_path=vm_log,
+                echo=False,
+            )
+            actual_hostname = (hostname_proc.stdout or "").strip()
+            if actual_hostname != vm:
+                raise RuntimeError(
+                    f"hostname after reboot is {actual_hostname!r}, expected {vm!r}"
+                )
+            print(f"[{vm}] reboot complete; hostname is {actual_hostname}")
 
             print(f"[{vm}] provisioning {repo} without Forgejo credentials...")
             _run_logged(
