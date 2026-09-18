@@ -13,12 +13,12 @@ def _nix_string(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def generate_nix(*, csv_path: str, target_dir: str) -> int:
+def generate_nix(*, csv_path: str, target_dir: str, dry_run: bool = False) -> int:
     doc = read_rollout_csv(csv_path)
     rows = doc.active_rows()
 
     if not rows:
-        print("WARN:  No active VM rows found in rollout.csv")
+        print(f"WARN:  No active VM rows found in {csv_path}")
         return 0
 
     # Validate everything before touching the target directory. This keeps a
@@ -57,12 +57,18 @@ def generate_nix(*, csv_path: str, target_dir: str) -> int:
     # any unrelated files intact.
     for old_path in sorted(out_dir.glob("bunny[0-9][0-9].nix")):
         if old_path.name not in wanted:
-            old_path.unlink()
-            print(f"Removed stale {old_path}")
+            if dry_run:
+                print(f"Would remove stale {old_path}")
+            else:
+                old_path.unlink()
+                print(f"Removed stale {old_path}")
 
     for vm, content in hosts:
         out_path = out_dir / f"{vm}.nix"
-        out_path.write_text(content, encoding="utf-8")
-        print(f"Wrote {out_path}")
+        if dry_run:
+            print(f"Would write {out_path}")
+        else:
+            out_path.write_text(content, encoding="utf-8")
+            print(f"Wrote {out_path}")
 
     return 0

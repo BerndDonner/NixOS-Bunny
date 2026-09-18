@@ -2,7 +2,7 @@
 
 Generated from the 2026/27 rollout data used to create hosts/bunnyXX.nix.
 The authoritative source remains rollout.csv; regenerate host definitions with
-`./scripts/mct-vm.py generate-nix --csv rollout.csv --target-dir hosts`.
+`./scripts/mct-vm.py generate-nix` (configuration: `config.toml`).
 
 VM       Course  Forgejo        Name
 -------- ------- -------------- --------------------------------

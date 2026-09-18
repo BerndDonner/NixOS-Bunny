@@ -1,0 +1,117 @@
+# ============================================================================
+# MCT VM configuration
+#
+# mct-vm.py deliberately has no command-line options. All persistent settings
+# and temporary run controls live here. Commands remain explicit, for example:
+#
+#   ./scripts/mct-vm.py config-check
+#   ./scripts/mct-vm.py generate-nix
+#   ./scripts/mct-vm.py prepare-golden
+#   ./scripts/mct-vm.py finalize-golden
+#   ./scripts/mct-vm.py clone
+#   ./scripts/mct-vm.py individualize
+#   ./scripts/mct-vm.py prepare-images
+#   ./scripts/mct-vm.py update-csv
+#   ./scripts/mct-vm.py rollout
+#
+# Relative paths are resolved from the repository root.
+#
+# Provisioning SSH is intentionally not configurable here. mct-vm uses the
+# Bunny contract student@127.0.0.1:2222 and the host key ~/.ssh/bernd_tracy.
+# ============================================================================
+
+[workflow]
+# Exactly one image family is active at a time.
+# "classroom" uses rollout.csv and bunnyXX.* images.
+# "lockdown"  uses rollout-lockdown.csv and bunnyXX-lockdown.* images.
+# The two modes are alternatives, never parallel profiles in one run.
+mode = "classroom"
+
+[paths]
+# Directory that contains the golden QCOW2 and the per-VM QCOW2/VMDK images.
+vm_images_dir = "~/VirtualMashines"
+
+# Runtime logs written by individualization, golden-image preparation and rollout.
+logs_dir = "logs"
+
+[golden_image]
+# Current golden QCOW2 used by `clone` and by the phase-2 prepare/finalize steps.
+# The matching UEFI state is derived automatically by replacing .qcow2 with
+# .OVMF_VARS.fd, e.g. golden-26.05.qcow2 -> golden-26.05.OVMF_VARS.fd.
+file = "golden-26.05.qcow2"
+
+# Optional source tree overlaid onto /home/student by `prepare-golden`.
+# Hidden files are included, unrelated guest files are preserved, symlinks and
+# empty directories are ignored. .continue/config.yaml is always excluded here
+# because the final Continue configuration is installed only by finalize-golden.
+# Leave empty if there is currently nothing to overlay.
+student_home_content = ""
+
+# When prepare-golden finds ~/reference in the guest, make Chrome open that
+# offline documentation on startup. The technical implementation uses a managed
+# Chrome policy and auto-detects a suitable index.html/index.htm if present.
+browser_opens_offline_reference = true
+
+[images]
+# Minimize completed QCOW2 images before shutdown. The current implementation
+# asks the guest filesystem to release unused blocks (fstrim) while QEMU passes
+# discard through to the QCOW2 image.
+optimize_image_size = true
+
+[courses]
+# Public source used to bootstrap MCT_I3A / MCT_E3A without student credentials.
+# {repo} expands to MCT_<course>; {course} is also available.
+public_source = "https://github.com/BerndDonner/{repo}.git"
+
+# Forgejo remote configured as `origin`. Individualization does NOT log in or
+# push there. A student publishes the prepared local branch later with `git pub`.
+student_origin = "https://forgejo.meisterk.de/Microcontrollertechnik/{repo}.git"
+
+[rollout]
+# Directory containing the finished .vmdk.zst files when `rollout` is run.
+# This is intentionally separate from paths.vm_images_dir because rollout may
+# be executed from a different machine/OS than image preparation.
+prepared_images_dir = "."
+
+# Target directory on the Windows classroom PCs.
+windows_vm_directory = 'C:\Virtual_Machines'
+
+# Local directory used by rollout; it must contain zstd.exe.
+windows_tools_dir = "tools"
+
+# ============================================================================
+# TEMPORARY RUN CONTROL
+#
+# Check this section before a full run. The values shown below are the normal,
+# safe state. mct-vm prints any non-default temporary settings before it acts.
+# ============================================================================
+
+[run]
+# Limit `clone` and `individualize` to these VM names, e.g. ["bunny06"].
+# Empty = all active VMs from the active rollout CSV.
+only_vms = []
+
+# Limit `rollout` to this Windows PC name. Empty = all active PCs.
+only_pc = ""
+
+# Show/validate the planned work without modifying images, CSVs or remote PCs.
+dry_run = false
+
+# If prepare-golden, finalize-golden or individualize fails, leave its QEMU VM
+# running for manual diagnosis instead of stopping it automatically.
+keep_failed_vm_running = false
+
+# Allow `clone` to replace already existing bunnyXX image + UEFI-state files.
+# false is intentionally strict: existing targets cause an error instead of
+# silently reusing an old VM.
+recreate_existing_images = false
+
+# Force rollout even when the target marker says the compressed image is current.
+redeploy_even_if_current = false
+
+# Produce additional diagnostic logging during rollout.
+extra_diagnostics = false
+
+# Emergency rollout: prioritize getting a startable VMDK onto the target and do
+# not claim normal remote verification. A manifest is written for traceability.
+rollout_without_verification = false

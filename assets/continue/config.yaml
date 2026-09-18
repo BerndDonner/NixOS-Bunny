@@ -1,0 +1,53 @@
+name: Tabby-Replacement
+version: 0.1.0
+schema: v1
+
+models:
+  - name: DeepSeek-Autocomplete
+    provider: ollama
+    model: deepseek-coder:6.7b
+    apiBase: http://ai.donner-lab.org:11434
+    roles:
+      - autocomplete
+    autocompleteOptions:
+      debounceDelay: 250
+      maxPromptTokens: 1024
+      onlyMyCode: true
+    defaultCompletionOptions:
+      temperature: 0.3
+      stop:
+        - "\n"
+
+  - name: Qwen-Chat
+    provider: ollama
+    model: qwen2.5-coder:7b
+    apiBase: http://ai.donner-lab.org:11434
+    roles:
+      - chat
+      - edit
+      - apply
+    defaultCompletionOptions:
+      temperature: 0.6
+      maxTokens: 1500
+      contextLength: 32000
+
+# lightweight context providers for smarter answers
+context:
+  - provider: file
+  - provider: code
+  - provider: diff
+
+# style rules for consistent answers
+rules:
+  - Keep answers concise and correct.
+  - Prefer Python-style pseudocode when language is unclear.
+
+# local telemetry sink (for debugging)
+data:
+  - name: local-log
+    destination: file://~/.continue/events
+    schema: 0.2.0
+    level: noCode
+
+# fully disable remote telemetry
+disableTelemetry: true

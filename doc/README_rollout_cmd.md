@@ -1,49 +1,39 @@
-# VM Rollout (Donnerstag)
+# VM Rollout
 
-Dieses README beschreibt die wichtigsten Startbefehle für das zentrale Rollout-Skript.
+The integrated rollout is driven by the repository-root `config.toml`; there are
+no rollout command-line options anymore.
 
-## Voraussetzungen
+Before a run, review especially:
 
-- Externe SSD ist eingesteckt und erreichbar  
-- Rollout-Struktur liegt z.B. unter: `D:\rollout\`
-- Enthalten sind mindestens:
-  - `rollout.cmd`
-  - `rollout.csv`
-  - Ordner `images\` (mit `bunnyXX.vmdk.zst`)
-  - Ordner `tools\` (mit `zstd.exe`)
+```toml
+[workflow]
+mode = "classroom"
 
-## Standard-Start (Donnerstag)
+[rollout]
+prepared_images_dir = "."
+windows_vm_directory = 'C:\Virtual_Machines'
+windows_tools_dir = "tools"
 
-Angenommen die SSD ist `D:\rollout\`:
-
-```cmd
-D:\rollout\rollout.cmd --src D:\rollout\images --tools D:\rollout\tools --csv D:\rollout\rollout.csv
+[run]
+only_pc = ""
+dry_run = false
+redeploy_even_if_current = false
+extra_diagnostics = false
+rollout_without_verification = false
 ```
 
-- liest `rollout.csv`
-- rollt die passenden VMs auf die angegebenen PCs aus
-- prüft SHA256
-- entpackt remote
-- löscht anschließend die `.vmdk.zst`
-- schreibt Marker-Dateien, damit spätere Durchläufe nichts kaputt machen
+Then run:
 
-## Einzelnen PC testen
-
-Praktisch zum Testen oder für verspätete Schüler:
-
-```cmd
-D:\rollout\rollout.cmd --only S40404-01 --src D:\rollout\images
+```text
+python scripts\mct-vm.py rollout
 ```
 
-Hinweis: `--only` filtert auf genau diesen PC-Namen aus der CSV.
+For a test run set `run.dry_run = true`. To target a single classroom PC, set
+`run.only_pc` temporarily. To ignore an existing marker and redeploy, set
+`run.redeploy_even_if_current = true` temporarily. Restore the `[run]` section to
+its normal values afterwards.
 
-## Neue Version erzwingen (Marker ignorieren)
-
-Wenn du eine neue Version ausrollen willst, obwohl bereits Marker-Dateien existieren:
-
-```cmd
-D:\rollout\rollout.cmd --force --src D:\rollout\images
-```
-
-- ignoriert vorhandene Marker
-- rollt neu aus (inkl. Löschen/Ersetzen der alten Version)
+Normal rollout copies the compressed image, verifies its SHA256 on the target,
+writes the marker and unpacks remotely. `rollout_without_verification = true` is
+the emergency path and writes an emergency manifest instead of claiming normal
+verification.

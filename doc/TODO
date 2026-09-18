@@ -1,34 +1,20 @@
 # Golden image / 2026-27
 
-Before building/reviewing the golden image:
+Current lifecycle is config-driven through `config.toml` and `scripts/mct-vm.py`.
 
-1. Treat rollout.csv as the single source of truth for active classroom VMs.
-2. Run `./scripts/mct-vm.py generate-nix --csv rollout.csv --target-dir hosts`.
-   - creates the active hosts/bunnyXX.nix files,
-   - removes stale bunnyXX host files,
-   - records gitName/gitEmail/forgejo/course.
-3. Build and boot the generic `bunny` golden image once with normal Internet.
-   `mct-bootstrap-nixos-bunny.service` clones the public NixOS-Bunny repository
-   into /home/student/NixOS-Bunny and links /etc/nixos to it.
-4. Copy the externally supplied Arduino offline-documentation home tree with
-   `scripts/copy-home-tree.sh`. The script never copies ~/.continue/config.yaml.
-5. Install the selected VS Code extensions manually (one-time golden step).
-6. Verify Git/libsecret/KWallet behaviour before freezing the golden image.
+Before a new classroom image round:
 
-Phase 3 is now automated:
+1. Review `config.toml`, especially `[workflow]`, `[golden_image]` and `[run]`.
+2. Review/update `rollout.csv` and run `./scripts/mct-vm.py generate-nix` if the
+   active VM/student mapping changed.
+3. Build the generic QCOW2 (`nix build .#qcow2`) and place/name it as configured.
+4. Run `./scripts/mct-vm.py prepare-golden`.
+5. Do the deliberate manual GUI work (VS Code extensions, Continue install/start,
+   tests). Continue's final config is intentionally NOT installed yet.
+6. Run `./scripts/mct-vm.py finalize-golden`; this installs the authoritative
+   Continue config and cleanly freezes the golden image.
+7. Run `clone`, then `individualize` (pilot with `[run].only_vms` first).
+8. Run `prepare-images`, `update-csv`, then `rollout`.
 
-- `./scripts/mct-vm.py phase3 --image-dir images` clones missing bunnyXX images
-  and performs boot/rebuild/course provisioning/validation/shutdown.
-- Use `--only bunnyXX` for the first test run.
-- Host files are NOT regenerated automatically during phase 3.
-- No student Forgejo credentials are used; students publish their branch later
-  with `git pub`.
-- Continue configuration is deliberately untouched during phase 3.
-
-Still deliberately outside the golden image:
-
-- `arduino-cli.yaml` in the MCT template is unused/trash and must not be used.
-- Class-repository clone/branch selection and student-specific VS Code settings
-  happen only after the golden image is cloned into bunnyXX VMs (automated by
-  phase3).
-- Rollout begins only after the individualized QCOW2 images are complete.
+Lockdown and classroom are alternative workflow modes. Lockdown has different
+seat assignments and is intentionally not being expanded/reworked right now.

@@ -121,9 +121,10 @@ authorized key       ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFOwgNuwt6tb2+fz7KQ6g+r
 ```
 
 This key is the **public** provisioning key only. No private key or passphrase
-is stored in Bunny. Because `student` is already in `wheel` with passwordless
-`sudo`, later provisioning can perform the required system and user setup over
-this SSH connection.
+is stored in Bunny. `mct-vm.py` uses the corresponding host key
+`~/.ssh/bernd_tracy` directly; an ssh-agent is not required. Because `student`
+is already in `wheel` with passwordless `sudo`, later provisioning can perform
+the required system and user setup over this SSH connection.
 
 The socket can be inspected with:
 
@@ -133,136 +134,161 @@ systemctl status sshd.socket
 
 and the actual daemon will normally exist only while a connection is active.
 
-## Image lifecycle: QCOW2 until rollout
+## Configuration and image lifecycle
 
-**Phases 1, 2 and 3 are performed on the NixOS host and use QCOW2 images only.**
-There is no VMware/VMDK conversion during image creation, golden-image setup or
-host individualization.  Conversion happens only in the later rollout stage,
-after all host-specific images are already complete and tested.
+`mct-vm.py` has deliberately no command-line options. All persistent settings,
+temporary selections and operational documentation live in the repository-root
+`config.toml`. The command line only chooses the operation:
 
-In particular, do **not** build `.#vmware` as part of phases 1-3.
+```bash
+./scripts/mct-vm.py config-check
+./scripts/mct-vm.py generate-nix
+./scripts/mct-vm.py prepare-golden
+./scripts/mct-vm.py finalize-golden
+./scripts/mct-vm.py clone
+./scripts/mct-vm.py individualize
+./scripts/mct-vm.py prepare-images
+./scripts/mct-vm.py update-csv
+./scripts/mct-vm.py rollout
+```
 
-### Phase 1 — build the generic golden QCOW2
+`[workflow].mode` selects exactly one image family: `classroom` or `lockdown`.
+They are alternatives, not parallel profiles. Classroom mode uses `rollout.csv`
+and `bunnyXX.*`; lockdown mode uses `rollout-lockdown.csv` and
+`bunnyXX-lockdown.*`. Lockdown individualization is intentionally not expanded
+further until that exam workflow is reviewed again.
 
-Build the generic `bunny` image:
+Temporary one-run controls are grouped visibly under `[run]` in `config.toml`.
+Non-default temporary values are printed before an operation starts.
+
+**Phases 1, 2 and 3 use QCOW2 only.** VMDK conversion happens only after the
+host-specific images are finished.
+
+### Phase 1 — build the generic QCOW2
 
 ```bash
 nix build .#qcow2
 ```
 
-The resulting QCOW2 is the starting point for the golden image.
+Name/copy the image as the active `[golden_image].file` from `config.toml`.
+The UEFI state filename is derived automatically by replacing `.qcow2` with
+`.OVMF_VARS.fd`.
 
-### Phase 2 — prepare and test the golden QCOW2
-
-Boot the QCOW2 with QEMU on the NixOS host, perform the deliberate one-time
-golden-image setup (offline documentation/home-tree overlay, manual VS Code
-extensions, Continue test, Git/KWallet checks, etc.), test it, shut it down
-cleanly and keep the resulting QCOW2 as the finished golden image.
-
-### Phase 3 — create and finish the host-specific QCOW2 images
-
-Phase 3 is automated by `mct-vm.py`. Host files are deliberately **not**
-regenerated here; `hosts/bunnyXX.nix` must already be reviewed and match
-`rollout.csv`.
-
-To clone missing images from the finished golden QCOW2 and fully individualize
-them in one pass:
+### Phase 2a — prepare the golden image
 
 ```bash
-./scripts/mct-vm.py phase3 --image-dir images
+./scripts/mct-vm.py prepare-golden
 ```
 
-For the first real run, select one VM first:
+This starts the configured golden image **visibly**, with the fixed provisioning
+SSH transport `student@127.0.0.1:2222`. The host private key is fixed at
+`~/.ssh/bernd_tracy`; the matching public key is already built into Bunny.
+There is no SSH configuration in `config.toml`.
+
+`prepare-golden` performs the work that is safe before manual GUI setup:
+
+- optionally overlays `[golden_image].student_home_content` onto
+  `/home/student`;
+- includes hidden regular files, preserves unrelated guest files, and ignores
+  symlinks/empty directories;
+- **never** copies `.continue/config.yaml`;
+- optionally makes Chrome open the offline `~/reference` documentation;
+- leaves the VM running for manual work.
+
+The old `scripts/copy-home-tree.sh` has been absorbed into this command.
+
+Now perform the deliberate manual golden-image work, especially installing and
+starting the VS Code extensions/Continue so they can create whatever initial
+state they need.
+
+### Phase 2b — finalize the golden image
 
 ```bash
-./scripts/mct-vm.py phase3 --image-dir images --only bunny02
+./scripts/mct-vm.py finalize-golden
 ```
 
-If the `bunnyXX.qcow2` files already exist, skip the clone step explicitly:
+If the VM from `prepare-golden` is still running, the command reconnects to that
+exact session. If it was shut down meanwhile, it starts the configured golden
+image again headless.
+
+Finalization:
+
+1. installs the authoritative `assets/continue/config.yaml` as
+   `~/.continue/config.yaml` **after** Continue has been installed/started;
+2. verifies the copied Continue configuration;
+3. optionally optimizes image size (`[images].optimize_image_size`; currently
+   implemented with guest `fstrim` plus QEMU discard);
+4. shuts the VM down cleanly.
+
+### Host generation
+
+`hosts/bunnyXX.nix` is generated from the **active mode's** rollout CSV:
 
 ```bash
-./scripts/mct-vm.py individualize --image-dir images
+./scripts/mct-vm.py generate-nix
 ```
 
-The automated individualization runs sequentially. For every selected active
-VM it:
+The host files are reviewed configuration. `individualize` never regenerates
+them implicitly.
 
-1. starts the QCOW2 headless with a localhost-only SSH forward;
-2. waits for the provisioning SSH key;
-3. copies the already reviewed local `hosts/bunnyXX.nix` into the guest checkout
-   (it does **not** regenerate the file);
-4. runs `sudo nixos-rebuild switch --flake path:/home/student/NixOS-Bunny#bunnyXX`;
-5. verifies hostname, human Git identity, `mct.student` and `mct.course`;
-6. clones the matching public GitHub course mirror as remote `github`;
-7. configures Forgejo HTTPS as remote `origin` **without contacting Forgejo**;
-8. creates/selects the local student branch from `master` (teacher stays on
-   `master`);
-9. runs the course repository `_config/setup.sh`;
-10. creates a KDE autostart entry so VS Code opens the correct course folder;
-11. configures Chrome homepage/startup to the offline documentation;
-12. validates the course hooks, VS Code protection, remotes and branch state;
-13. runs `fstrim` and powers the guest off cleanly.
+### Clone host-specific images
 
-Student branches are intentionally left without an upstream. The first Forgejo
-contact remains the student's own:
+```bash
+./scripts/mct-vm.py clone
+```
+
+`clone` copies the configured golden QCOW2 and its matching UEFI state to the
+active VMs. It is intentionally strict: an existing target image is an error,
+so an old VM can never be silently reused. For a deliberate replacement set
+`[run].recreate_existing_images = true` temporarily.
+
+`[run].only_vms = ["bunny06"]` can be used for a pilot clone/individualization.
+
+### Phase 3 — individualize existing QCOW2 images
+
+```bash
+./scripts/mct-vm.py individualize
+```
+
+This command does **not** know or need the golden image. It works only on the
+already cloned `bunnyXX.qcow2` images. For each selected classroom VM it:
+
+1. boots the existing QCOW2 headless and waits for provisioning SSH;
+2. copies the already reviewed `hosts/bunnyXX.nix` into the guest checkout;
+3. runs `nixos-rebuild switch --flake ...#bunnyXX`;
+4. verifies hostname and Git/MCT identity;
+5. clones the public GitHub course mirror without student credentials;
+6. configures Forgejo as `origin` without contacting or logging into Forgejo;
+7. creates/selects the student's local branch (teacher remains on `master`);
+8. runs the course repository `_config/setup.sh` for hooks and VS Code read-only
+   protection;
+9. validates the resulting repository/branch state and the finalized Continue
+   config;
+10. optionally optimizes image size;
+11. shuts down cleanly.
+
+There is deliberately **no VS Code autostart or first-launch manipulation**.
+Students start VS Code themselves in class. Student branches deliberately have
+no upstream; the first Forgejo contact remains the student's own:
 
 ```bash
 git pub
 ```
 
-That creates `origin/<forgejo-login>` and sets the upstream. No student
-credentials are used during image creation.
+### Prepare deployment images and rollout
 
-Continue configuration is deliberately outside phase 3: it is neither copied,
-created, overwritten nor deleted.
-
-By default the Chrome start page is auto-detected as `index.html`/`index.htm`
-below `/home/student/reference`; if no HTML entry point exists, Chrome opens the
-`reference/` directory itself. If the documentation has a different preferred
-entry point, specify it explicitly, for example:
+After all individualized QCOW2 images are complete:
 
 ```bash
-./scripts/mct-vm.py individualize --image-dir images \
-  --chrome-start-page /home/student/reference/path/to/start.html
+./scripts/mct-vm.py prepare-images
+./scripts/mct-vm.py update-csv
+./scripts/mct-vm.py rollout
 ```
 
-The SSH command runs in batch mode. Load the provisioning key once into
-`ssh-agent` before a full batch, or provide a key path with `--ssh-key`. Each run
-writes per-VM logs below `logs/individualize-<timestamp>/`. On failure the VM is
-stopped by default; `--keep-on-error` leaves it running for inspection.
-
-Only **after** phase 3 does rollout begin. The rollout tooling performs any
-required target-format conversion (for example for VMware) and deployment;
-conversion is not an image-preparation step.
-
-The `bunny` host is the generic golden/teacher base. Student hosts are
-individualized later by their `bunnyXX` configuration.
-
-## Host generation from rollout.csv
-
-Generate host files **before** individual student images are rebuilt:
-
-```bash
-./scripts/mct-vm.py generate-nix --csv rollout.csv --target-dir hosts
-```
-
-`generate-nix` uses active VM rows and requires:
-
-```text
-vm, course, forgejo, full_name, email
-```
-
-It also removes stale `hosts/bunnyXX.nix` files that no longer occur as active
-rows. It writes, for example:
-
-```nix
-{
-  gitName  = "Thomas Pabst";
-  gitEmail = "thomas.pabst@sabel.education";
-  forgejo  = "pabst";
-  course   = "I3A";
-}
-```
+`prepare-images` converts QCOW2 -> VMDK -> VMDK.ZST. `update-csv` writes the
+compressed filenames and SHA256 values into the active rollout CSV and updates
+the mode-specific checksums file. `rollout` uses the values in `[rollout]` and
+the temporary controls in `[run]`.
 
 ## First-boot bootstrap of NixOS-Bunny
 
@@ -275,7 +301,7 @@ https://github.com/BerndDonner/NixOS-Bunny.git
 
 After a successful clone, `/etc/nixos` is replaced by a symlink to that working
 copy, so plain `sudo nixos-rebuild switch` uses the checked-out flake and the
-configuration matching the current hostname.  An existing clone is never
+configuration matching the current hostname. An existing clone is never
 automatically pulled or modified; the golden image remains a reviewed snapshot.
 
 The service can be inspected or retried with:
@@ -285,65 +311,15 @@ systemctl status mct-bootstrap-nixos-bunny.service
 sudo systemctl restart mct-bootstrap-nixos-bunny.service
 ```
 
-## Copying the Arduino offline documentation tree
-
-The offline documentation is intentionally not a Nix input.  Its source root can
-be copied once into the golden VM over the already configured provisioning SSH:
-
-```bash
-./scripts/copy-home-tree.sh /path/to/source-root <VM-address>
-```
-
-The regular files below that source root are overlaid directly onto
-`/home/student`. Hidden files and files below hidden directories are included.
-Existing directories are kept; unrelated destination contents are never deleted,
-and symlinks/empty directories are not copied. Existing regular files are
-overwritten except for `~/.continue/config.yaml`, which is deliberately never
-copied by this script. Continue configuration is managed independently from the
-home-tree overlay.
-
-VS Code extensions remain a deliberate one-time manual golden-image step.
-
-## Current manual boundary
-
-The golden image remains a deliberately reviewed artifact.  The important
-format boundary is: **everything through the finished `bunnyXX` images is
-QCOW2**.
-
-```text
-rollout.csv
-  -> generate-nix (hosts/bunnyXX.nix)
-
-Phase 1 (QCOW2)
-  -> build generic bunny QCOW2
-
-Phase 2 (QCOW2)
-  -> boot/customize/test generic image
-  -> finished golden QCOW2
-
-Phase 3 (QCOW2)
-  -> ./scripts/mct-vm.py phase3
-  -> clone missing golden QCOW2 to bunnyXX QCOW2 images
-  -> automated boot/rebuild/course provisioning/validation/shutdown
-  -> finished bunnyXX QCOW2 images
-
-Rollout (only now)
-  -> convert finished QCOW2 images to the required target format
-  -> deploy them
-```
-
-The rollout script must never be used as a substitute for finishing an image:
-it receives already complete QCOW2 images and only then handles
-conversion/deployment.
-
 ## Main files
 
-- `flake.nix` — all normal and lockdown NixOS configurations
+- `config.toml` — the single user-facing configuration/help surface for mct-vm
+- `flake.nix` — NixOS configurations
 - `modules/mct-vm.nix` — system/desktop/VM configuration
 - `modules/home/student.nix` — Home Manager entry point for `student`
 - `modules/home/modules/git.nix` — global Git defaults and recovery aliases
-- `hosts/*.nix` — host-specific Git identity
-- `scripts/mct_vm/nixgen.py` — generates host identities from rollout CSV
-- `scripts/mct_vm/individualize.py` — automated classroom phase-3 provisioning
-- `scripts/mct-vm.py` — classroom image/phase-3/rollout helper
-- `scripts/mct-vm-lockdown.py` — lockdown image/rollout helper
+- `hosts/*.nix` — host-specific Git identity/course data
+- `assets/continue/config.yaml` — final Continue configuration installed in phase 2b
+- `scripts/mct_vm/golden.py` — phase-2 prepare/finalize automation
+- `scripts/mct_vm/individualize.py` — phase-3 classroom individualization
+- `scripts/mct-vm.py` — single entry point for image preparation and rollout

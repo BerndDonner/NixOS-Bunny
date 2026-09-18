@@ -2,8 +2,8 @@
 r"""
 mct-vm rollout — MCT VM Rollout (VMware)
 
-CSV format (7 columns, header allowed):
-  pcname,vm,forgejo,name,email,file,sha256
+CSV format is the canonical MCT rollout CSV:
+  pcname,vm,course,forgejo,full_name,email,file,sha256
 
 Where:
   - file   = e.g. bunny00.vmdk.zst
@@ -24,7 +24,7 @@ Goal: minimal network load + verifiable compressed artifact + remote unpack.
       C:\Virtual_Machines\<file>.vmdk.zst -> C:\Virtual_Machines\<vm>.vmdk
    The resulting .vmdk is NOT verified (as requested).
 
-EMERGENCY MODE (--emergency)
+EMERGENCY MODE (config.toml: run.rollout_without_verification = true)
 ----------------------------
 Goal: get a startable .vmdk onto each PC even if remote execution / hashing is not acceptable.
 
@@ -45,7 +45,6 @@ Assumptions:
 
 from __future__ import annotations
 
-import argparse
 import csv
 import datetime as _dt
 import hashlib
@@ -57,7 +56,8 @@ import tempfile
 import time
 from typing import Optional, Dict, Iterator, Tuple, List
 
-from .mode import CLASSROOM_MODE, ModeConfig
+from .config import AppConfig
+from .csv_model import read_rollout_csv, require_fields
 
 _HEX64_RE = re.compile(r"^[0-9A-Fa-f]{64}$")
 
@@ -630,7 +630,7 @@ def remote_unpack_via_schtasks(
     write_text_file(script_unc, script, dry_run=False, logfile=logfile)
 
     # Keep /TR short.  The target-dir default has no spaces, but keep quoting
-    # anyway because users may override --target-dir.
+    # anyway because the configured Windows target directory may differ.
     tr = f'cmd.exe /c "{script_win}"'
 
     log("INFO", f"Remote unpack via schtasks: {pc} ({in_zst} -> {out_vmdk})", logfile=logfile)
@@ -959,106 +959,81 @@ def deploy_one(
 
 
 # ------------------------
-# CLI
+# Config-driven rollout
 # ------------------------
 
-def parse_args(
-    argv: List[str],
-    *,
-    mode: ModeConfig = CLASSROOM_MODE,
-) -> argparse.Namespace:
-    p = argparse.ArgumentParser(
-        prog=f"{mode.program_name} rollout",
-        formatter_class=argparse.RawTextHelpFormatter,
-        description=(
-            "Roll out VMware VM images (.vmdk.zst) to remote Windows PCs via \\\\PC\\C$.\n"
-            "Default: remote SHA256 (best-effort) + marker + remote unpack via schtasks.\n"
-            "Emergency: local unpack + local vmdk reference SHA + unverified copies.\n\n"
-            f"Mode: {mode.name}\n"
-            f"Default CSV: {mode.csv_path}\n"
-            f"VM disk suffix: {mode.vm_suffix or '(none)'}\n"
-        ),
-    )
-    p.add_argument("--csv", default=mode.csv_path, help=f"Path to rollout CSV (default: {mode.csv_path})")
-    p.add_argument("--src", default=".", help="Directory containing .vmdk.zst files (default: current directory)")
-    p.add_argument("--tools", default="tools", help="Tools directory (must contain zstd.exe)")
-    p.add_argument("--target-dir", default=r"C:\Virtual_Machines", help=r"Target directory on remote C: (default: C:\Virtual_Machines)")
-    p.add_argument("--only", dest="only_pc", default="", help="Only deploy rows matching this PC name (case-insensitive)")
-    p.add_argument("--force", action="store_true", help="Force overwrite even if marker matches (normal mode only)")
-    p.add_argument("--dry-run", action="store_true", help="Print actions but do not change anything")
-    p.add_argument("--debug", action="store_true", help="Enable debug logging")
-    p.add_argument("--retries", type=int, default=2, help="Robocopy retries (default: 2)")
-    p.add_argument("--ping-timeout-ms", type=int, default=800, help="Ping timeout in ms (default: 800)")
-    p.add_argument("--logdir", default="logs", help="Log directory (default: logs)")
-    p.add_argument("--marker-ext", default=".sha256", help="Marker file extension (default: .sha256)")
+# Technical rollout constants intentionally stay in code. config.toml describes
+# desired behaviour, not retry/poll implementation details.
+_ROBOCOPY_RETRIES = 2
+_PING_TIMEOUT_MS = 800
+_MARKER_EXT = ".sha256"
+_UNPACK_TIMEOUT_SEC = 1800
+_UNPACK_POLL_SEC = 2.0
 
-    p.add_argument(
-        "--emergency",
-        action="store_true",
-        help="Emergency mode: no network hashing, no markers; local unpack + local vmdk reference SHA + unverified copy",
-    )
 
-    p.add_argument("--unpack-timeout-sec", type=int, default=1800, help="Remote unpack timeout seconds (default: 1800)")
-    p.add_argument("--unpack-poll-sec", type=float, default=2.0, help="Remote task poll interval seconds (default: 2.0)")
-    return p.parse_args(argv)
-
-def main(argv: List[str], *, mode: ModeConfig = CLASSROOM_MODE) -> int:
-    args = parse_args(argv, mode=mode)
-    logfile = make_logfile(args.logdir)
+def rollout_images(cfg: AppConfig) -> int:
+    logfile = make_logfile(str(cfg.logs_dir))
 
     log("INFO", "=== Rollout started ===", logfile=logfile)
     log("INFO", f"SCRIPT={os.path.abspath(sys.argv[0])}  CWD={os.getcwd()}", logfile=logfile)
-    log("INFO", f"CSV={os.path.abspath(args.csv)}  SRC={os.path.abspath(args.src)}  TOOLS={os.path.abspath(args.tools)}", logfile=logfile)
     log(
         "INFO",
-        f"TARGET={args.target_dir} RETRIES={args.retries} DRY_RUN={int(args.dry_run)} "
-        f"DEBUG={int(args.debug)} ONLY_PC={args.only_pc or '-'} EMERGENCY={int(args.emergency)}",
+        f"MODE={cfg.mode} CSV={cfg.assignments_file} SRC={cfg.rollout_prepared_images_dir} "
+        f"TOOLS={cfg.rollout_windows_tools_dir}",
+        logfile=logfile,
+    )
+    log(
+        "INFO",
+        f"TARGET={cfg.rollout_windows_vm_directory} DRY_RUN={int(cfg.run.dry_run)} "
+        f"DEBUG={int(cfg.run.extra_diagnostics)} ONLY_PC={cfg.run.only_pc or '-'} "
+        f"EMERGENCY={int(cfg.run.rollout_without_verification)}",
         logfile=logfile,
     )
 
-    csv_path = os.path.abspath(args.csv)
-    src_dir = os.path.abspath(args.src)
-    tools_dir = os.path.abspath(args.tools)
+    csv_path = str(cfg.assignments_file)
+    src_dir = str(cfg.rollout_prepared_images_dir)
+    tools_dir = str(cfg.rollout_windows_tools_dir)
 
     if not os.path.exists(csv_path):
         log("ERROR", f"CSV not found: {csv_path}", logfile=logfile)
         return 2
     if not os.path.isdir(src_dir):
-        log("ERROR", f"SRC dir not found: {src_dir}", logfile=logfile)
+        log("ERROR", f"Prepared image directory not found: {src_dir}", logfile=logfile)
         return 2
 
-    # zstd is required in both modes:
-    # - normal: needs to be staged to the target for remote unpack
-    # - emergency: needs to unpack locally
     zstd_local = os.path.join(tools_dir, "zstd.exe")
-    if not args.dry_run and not os.path.exists(zstd_local):
+    if not cfg.run.dry_run and not os.path.exists(zstd_local):
         log("ERROR", f"Missing required tool: {zstd_local}", logfile=logfile)
         return 2
 
     emergency_manifest = None
-    if args.emergency:
+    if cfg.run.rollout_without_verification:
         ts = _dt.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        emergency_manifest = os.path.join(args.logdir, f"manifest-{ts}.csv")
-        log("WARN", f"EMERGENCY MODE enabled. Manifest: {os.path.abspath(emergency_manifest)}", logfile=logfile)
+        emergency_manifest = os.path.join(str(cfg.logs_dir), f"manifest-{ts}.csv")
+        log(
+            "WARN",
+            f"EMERGENCY MODE enabled. Manifest: {os.path.abspath(emergency_manifest)}",
+            logfile=logfile,
+        )
 
-    only = (args.only_pc or "").strip().lower()
+    only = cfg.run.only_pc.strip().lower()
     failures = 0
     matched = 0
 
     try:
-        for line_no, row in iter_csv_rows(csv_path):
-            while len(row) < 7:
-                row.append("")
-            pc, vm, _login, _fullname, _email, filename, sha = [x.strip() for x in row[:7]]
-            deploy_vm = mode.vm_file_stem(vm)
+        doc = read_rollout_csv(cfg.assignments_file)
+        for row in doc.active_rows():
+            require_fields(row, ["pcname", "vm", "file", "sha256"], command="rollout")
+            pc = row.raw["pcname"].strip()
+            vm = row.vm
+            filename = row.raw["file"].strip()
+            sha = row.raw["sha256"].strip()
+            deploy_vm = f"{vm}{cfg.vm_suffix}"
 
-            if not pc or not vm or not filename or not sha:
-                continue
-            if only and pc.strip().lower() != only:
+            if only and pc.lower() != only:
                 continue
 
             matched += 1
-
             try:
                 deploy_one(
                     pc=pc,
@@ -1067,31 +1042,31 @@ def main(argv: List[str], *, mode: ModeConfig = CLASSROOM_MODE) -> int:
                     expected_sha=sha,
                     src_dir=src_dir,
                     tools_dir=tools_dir,
-                    target_dir=args.target_dir,
-                    retries=args.retries,
-                    ping_timeout_ms=args.ping_timeout_ms,
-                    force=args.force,
-                    dry_run=args.dry_run,
-                    debug=args.debug,
-                    marker_ext=args.marker_ext,
-                    unpack_timeout_sec=args.unpack_timeout_sec,
-                    unpack_poll_sec=args.unpack_poll_sec,
-                    emergency=args.emergency,
+                    target_dir=cfg.rollout_windows_vm_directory,
+                    retries=_ROBOCOPY_RETRIES,
+                    ping_timeout_ms=_PING_TIMEOUT_MS,
+                    force=cfg.run.redeploy_even_if_current,
+                    dry_run=cfg.run.dry_run,
+                    debug=cfg.run.extra_diagnostics,
+                    marker_ext=_MARKER_EXT,
+                    unpack_timeout_sec=_UNPACK_TIMEOUT_SEC,
+                    unpack_poll_sec=_UNPACK_POLL_SEC,
+                    emergency=cfg.run.rollout_without_verification,
                     emergency_manifest=emergency_manifest,
                     logfile=logfile,
                 )
-            except Exception as e:
+            except Exception as exc:
                 failures += 1
-                log("ERROR", f"Line {line_no}: {pc},{deploy_vm}: {e}", logfile=logfile)
+                log("ERROR", f"Line {row.line_no}: {pc},{deploy_vm}: {exc}", logfile=logfile)
 
-    except (OSError, csv.Error, UnicodeError) as e:
-        log("ERROR", f"CSV read/parse failed: {e}", logfile=logfile)
+    except (OSError, csv.Error, UnicodeError, ValueError) as exc:
+        log("ERROR", f"CSV read/parse failed: {exc}", logfile=logfile)
         log("INFO", f"Logfile: {os.path.abspath(logfile)}", logfile=logfile)
         print(f'Log: "{os.path.abspath(logfile)}"')
         return 2
 
     if only and matched == 0:
-        log("WARN", f"No CSV entries matched --only {args.only_pc!r}", logfile=logfile)
+        log("WARN", f"No active CSV entries matched only_pc={cfg.run.only_pc!r}", logfile=logfile)
 
     if failures:
         log("ERROR", f"=== Rollout finished with {failures} error(s) ===", logfile=logfile)
@@ -1107,7 +1082,3 @@ def main(argv: List[str], *, mode: ModeConfig = CLASSROOM_MODE) -> int:
         log("INFO", f"Emergency manifest: {os.path.abspath(emergency_manifest)}", logfile=logfile)
     print(f'Log: "{os.path.abspath(logfile)}"')
     return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1:]))
