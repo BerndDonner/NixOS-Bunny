@@ -162,7 +162,7 @@ in {
   # --- Provisioning SSH
   # Socket activation keeps the sshd process stopped until an SSH connection
   # arrives. Only the student account may log in, exclusively with Bernd's
-  # provisioning key. Password and root login are disabled.
+  # MCT VM setup key. Password and root login are disabled.
   services.openssh = {
     enable = true;
     startWhenNeeded = true;
@@ -182,8 +182,10 @@ in {
     extraGroups = [ "wheel" "dialout" ];
     initialPassword = "mct";
     shell = pkgs.bashInteractive;
-    openssh.authorizedKeys.keys = [
-      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFOwgNuwt6tb2+fz7KQ6g+rH5gBCS58d6d7Y1A2O5bMX bernd@tracy"
+    # The public half is versioned with the VM definition. The private half
+    # exists only on the preparation host and is selected in config.toml.
+    openssh.authorizedKeys.keyFiles = [
+      ../assets/ssh/mct-vm-setup.pub
     ];
   };
   security.sudo.wheelNeedsPassword = false;

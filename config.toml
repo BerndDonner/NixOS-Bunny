@@ -16,8 +16,9 @@
 #
 # Relative paths are resolved from the repository root.
 #
-# Provisioning SSH is intentionally not configurable here. mct-vm uses the
-# Bunny contract student@127.0.0.1:2222 and the host key ~/.ssh/bernd_tracy.
+# Provisioning transport details are intentionally not configurable here:
+# Bunny is reached as student@127.0.0.1:2222. Only the preparation-host private
+# key path is configurable; mct-vm never creates or rotates that key implicitly.
 # ============================================================================
 
 [workflow]
@@ -45,12 +46,20 @@ file = "golden-26.05.qcow2"
 # empty directories are ignored. .continue/config.yaml is always excluded here
 # because the final Continue configuration is installed only by finalize-golden.
 # Leave empty if there is currently nothing to overlay.
-student_home_content = ""
+student_home_content = "~/VirtualMashines/bunny-files-to-copy"
 
-# When prepare-golden finds ~/reference in the guest, make Chrome open that
-# offline documentation on startup. The technical implementation uses a managed
-# Chrome policy and auto-detects a suitable index.html/index.htm if present.
-browser_opens_offline_reference = true
+# Page Chrome shall open when the prepared VM starts. This is a path inside
+# the guest, not on the preparation host. `prepare-golden` verifies that the
+# file exists after student_home_content has been copied and then configures a
+# managed Chrome policy for exactly this page. No automatic index.html search.
+browser_start_page = "~/reference/www.arduino.cc/en/Reference/HomePage.html"
+
+[provisioning]
+# Private SSH key on the preparation host used for phase 2 and phase 3 setup.
+# The matching public key is versioned as assets/ssh/mct-vm-setup.pub and built
+# into Bunny by Nix. mct-vm checks that both key halves match; it never generates
+# or rotates this key automatically.
+preparation_host_key = "~/.ssh/mct-vm-setup"
 
 [images]
 # Minimize completed QCOW2 images before shutdown. The current implementation

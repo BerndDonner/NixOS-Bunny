@@ -53,7 +53,8 @@ class AppConfig:
     golden_image: Path
     golden_vars: Path
     student_home_content: Path | None
-    browser_opens_offline_reference: bool
+    browser_start_page: str
+    preparation_host_key: Path
     optimize_image_size: bool
     course_public_source: str
     course_student_origin: str
@@ -85,6 +86,10 @@ class AppConfig:
     @property
     def final_continue_config(self) -> Path:
         return REPO_ROOT / "assets" / "continue" / "config.yaml"
+
+    @property
+    def provisioning_public_key(self) -> Path:
+        return REPO_ROOT / "assets" / "ssh" / "mct-vm-setup.pub"
 
 
 def _table(data: dict[str, Any], name: str, allowed: set[str]) -> dict[str, Any]:
@@ -132,7 +137,7 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
     with path.open("rb") as f:
         data = tomllib.load(f)
 
-    allowed_sections = {"workflow", "paths", "golden_image", "images", "courses", "rollout", "run"}
+    allowed_sections = {"workflow", "paths", "golden_image", "provisioning", "images", "courses", "rollout", "run"}
     unknown_sections = sorted(set(data) - allowed_sections)
     if unknown_sections:
         raise ValueError(f"config.toml: unknown section(s): {', '.join(unknown_sections)}")
@@ -142,8 +147,9 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
     golden = _table(
         data,
         "golden_image",
-        {"file", "student_home_content", "browser_opens_offline_reference"},
+        {"file", "student_home_content", "browser_start_page"},
     )
+    provisioning = _table(data, "provisioning", {"preparation_host_key"})
     images = _table(data, "images", {"optimize_image_size"})
     courses = _table(data, "courses", {"public_source", "student_origin"})
     rollout = _table(data, "rollout", {"prepared_images_dir", "windows_vm_directory", "windows_tools_dir"})
@@ -190,8 +196,9 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
         golden_image=golden_path,
         golden_vars=golden_vars,
         student_home_content=student_home_content,
-        browser_opens_offline_reference=_bool(
-            golden, "browser_opens_offline_reference", "golden_image", True
+        browser_start_page=_required_str(golden, "browser_start_page", "golden_image"),
+        preparation_host_key=_path(
+            _required_str(provisioning, "preparation_host_key", "provisioning")
         ),
         optimize_image_size=_bool(images, "optimize_image_size", "images", True),
         course_public_source=_required_str(courses, "public_source", "courses"),

@@ -12,7 +12,6 @@ from pathlib import Path
 SSH_HOST = "127.0.0.1"
 SSH_PORT = 2222
 SSH_USER = "student"
-SSH_KEY = Path.home() / ".ssh" / "bernd_tracy"
 SSH_READY_TIMEOUT = 240
 SHUTDOWN_TIMEOUT = 120
 
@@ -31,21 +30,56 @@ def qemu_script_path() -> Path:
     return path
 
 
-def ensure_provisioning_key() -> Path:
-    if not SSH_KEY.is_file():
+def ensure_provisioning_key(key: Path) -> Path:
+    if not key.is_file():
         raise FileNotFoundError(
-            f"Provisioning private key not found: {SSH_KEY}. "
-            "Bunny expects the matching public key."
+            f"Preparation-host private key not found: {key}. "
+            "mct-vm never creates or rotates setup keys automatically."
         )
-    pub = SSH_KEY.with_suffix(SSH_KEY.suffix + ".pub") if SSH_KEY.suffix else Path(str(SSH_KEY) + ".pub")
-    if not pub.is_file():
-        # The private key is sufficient for SSH, so this is only informational.
-        print(f"WARN: provisioning public-key file not found: {pub}")
-    return SSH_KEY
+    return key
 
 
-def ssh_base() -> list[str]:
-    key = ensure_provisioning_key()
+def _public_key_identity(text: str) -> tuple[str, str]:
+    parts = text.strip().split()
+    if len(parts) < 2:
+        raise ValueError("Invalid OpenSSH public key; expected '<type> <base64> [comment]'")
+    return parts[0], parts[1]
+
+
+def verify_provisioning_key_pair(*, private_key: Path, public_key: Path) -> None:
+    """Verify that the preparation-host private key matches Bunny's versioned public key.
+
+    Comments are deliberately ignored; existing golden images may still carry the
+    old ``bernd@tracy`` comment while using exactly the same cryptographic key.
+    """
+    ensure_provisioning_key(private_key)
+    if not public_key.is_file():
+        raise FileNotFoundError(f"Versioned Bunny setup public key not found: {public_key}")
+    need_cmd("ssh-keygen")
+
+    proc = subprocess.run(
+        ["ssh-keygen", "-y", "-f", str(private_key)],
+        stdout=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"Could not derive a public key from preparation_host_key {private_key}. "
+            "Check the key and its passphrase."
+        )
+
+    actual = _public_key_identity(proc.stdout or "")
+    expected = _public_key_identity(public_key.read_text(encoding="utf-8"))
+    if actual != expected:
+        raise RuntimeError(
+            "preparation_host_key does not match the public setup key built into Bunny: "
+            f"{public_key}"
+        )
+
+
+def ssh_base(key: Path) -> list[str]:
+    key = ensure_provisioning_key(key)
     return [
         "ssh",
         "-p",
@@ -114,19 +148,19 @@ def wait_for_ssh_service(*, qemu: subprocess.Popen[bytes] | None, timeout: int =
     raise TimeoutError(f"Guest SSH did not become available within {timeout}s.{detail}")
 
 
-def verify_ssh_login() -> None:
+def verify_ssh_login(key: Path) -> None:
     need_cmd("ssh")
-    proc = subprocess.run([*ssh_base(), "true"], check=False)
+    proc = subprocess.run([*ssh_base(key), "true"], check=False)
     if proc.returncode != 0:
         raise RuntimeError(
-            f"Provisioning SSH login failed with {SSH_KEY}. "
+            f"Provisioning SSH login failed with {key}. "
             "The key may be wrong, encrypted without an available passphrase, or not authorized in Bunny."
         )
 
 
-def remote_script_command(args: list[str]) -> list[str]:
+def remote_script_command(key: Path, args: list[str]) -> list[str]:
     quoted = " ".join(shlex.quote(arg) for arg in args)
-    return [*ssh_base(), f"bash -s -- {quoted}"]
+    return [*ssh_base(key), f"bash -s -- {quoted}"]
 
 
 def start_qemu(
@@ -158,8 +192,10 @@ def stop_qemu(qemu: subprocess.Popen[bytes]) -> None:
         qemu.wait(timeout=10)
 
 
-def poweroff_guest(*, qemu: subprocess.Popen[bytes], timeout: int = SHUTDOWN_TIMEOUT) -> None:
-    subprocess.run([*ssh_base(), "sudo systemctl poweroff"], check=False)
+def poweroff_guest(
+    *, key: Path, qemu: subprocess.Popen[bytes], timeout: int = SHUTDOWN_TIMEOUT
+) -> None:
+    subprocess.run([*ssh_base(key), "sudo systemctl poweroff"], check=False)
     try:
         qemu.wait(timeout=timeout)
     except subprocess.TimeoutExpired:

@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import signal
+import shlex
 import stat
 import subprocess
 import sys
@@ -81,13 +82,13 @@ def _validate_golden_files(cfg: AppConfig) -> None:
     # through run-qemu and verify it afterwards.
 
 
-def _copy_home_overlay(source_root: Path) -> None:
+def _copy_home_overlay(source_root: Path, *, key: Path) -> None:
     if not source_root.is_dir():
         raise FileNotFoundError(f"student_home_content is not a directory: {source_root}")
 
     print(f"Overlaying student home content from {source_root}")
     proc = subprocess.Popen(
-        [*ssh_base(), 'tar --no-same-owner -C "$HOME" -xf -'],
+        [*ssh_base(key), 'tar --no-same-owner -C "$HOME" -xf -'],
         stdin=subprocess.PIPE,
     )
     assert proc.stdin is not None
@@ -119,30 +120,25 @@ def _copy_home_overlay(source_root: Path) -> None:
     print(f"Overlay complete: {copied} regular file(s); Continue config intentionally skipped.")
 
 
-def _configure_offline_reference_start_page() -> None:
+def _guest_path(path: str) -> str:
+    if path.startswith("~/"):
+        return "/home/student/" + path[2:]
+    if path.startswith("/"):
+        return path
+    raise ValueError(
+        "[golden_image].browser_start_page must be an absolute guest path or start with '~/'."
+    )
+
+
+def _configure_browser_start_page(*, start_page: str, key: Path) -> None:
+    guest_path = _guest_path(start_page)
     script = r'''set -euo pipefail
 fail() { echo "ERROR: $*" >&2; exit 1; }
 
-candidate=""
-for path in "$HOME/reference/index.html" "$HOME/reference/index.htm"; do
-    if [[ -f "$path" ]]; then
-        candidate="$path"
-        break
-    fi
-done
-
-if [[ -z "$candidate" && -d "$HOME/reference" ]]; then
-    candidate=$(find "$HOME/reference" -type f \
-        \( -iname 'index.html' -o -iname 'index.htm' \) \
-        -print | LC_ALL=C sort | head -n 1 || true)
-fi
-
-if [[ -z "$candidate" ]]; then
-    [[ -d "$HOME/reference" ]] || fail "offline reference directory is missing: $HOME/reference"
-    candidate="$HOME/reference/"
-fi
-
-url="file://$candidate"
+start_page=$1
+[[ -f "$start_page" ]] || fail "configured browser start page is missing: $start_page"
+start_page=$(realpath "$start_page")
+url="file://$start_page"
 policy_tmp=$(mktemp)
 jq -n --arg url "$url" '{
     HomepageLocation: $url,
@@ -153,11 +149,16 @@ jq -n --arg url "$url" '{
 }' > "$policy_tmp"
 sudo install -Dm0644 "$policy_tmp" /etc/opt/chrome/policies/managed/mct-classroom.json
 rm -f "$policy_tmp"
-echo "Chrome offline-reference start page: $url"
+echo "Chrome start page: $url"
 '''
-    proc = subprocess.run([*ssh_base(), "bash -s"], input=script, text=True, check=False)
+    proc = subprocess.run(
+        [*ssh_base(key), f"bash -s -- {shlex.quote(guest_path)}"],
+        input=script,
+        text=True,
+        check=False,
+    )
     if proc.returncode != 0:
-        raise RuntimeError("Could not configure Chrome offline-reference start page")
+        raise RuntimeError(f"Could not configure Chrome start page: {guest_path}")
 
 
 def _install_final_continue_config(cfg: AppConfig) -> None:
@@ -168,7 +169,7 @@ def _install_final_continue_config(cfg: AppConfig) -> None:
     content = source.read_bytes()
     local_sha = hashlib.sha256(content).hexdigest()
     cmd = [
-        *ssh_base(),
+        *ssh_base(cfg.preparation_host_key),
         'mkdir -p "$HOME/.continue" && cat > "$HOME/.continue/config.yaml" && '
         'chmod 0644 "$HOME/.continue/config.yaml"',
     ]
@@ -177,7 +178,7 @@ def _install_final_continue_config(cfg: AppConfig) -> None:
         raise RuntimeError("Failed to install final Continue configuration")
 
     verify = subprocess.run(
-        [*ssh_base(), 'sha256sum "$HOME/.continue/config.yaml" | cut -d" " -f1'],
+        [*ssh_base(cfg.preparation_host_key), 'sha256sum "$HOME/.continue/config.yaml" | cut -d" " -f1'],
         stdout=subprocess.PIPE,
         text=True,
         check=False,
@@ -194,13 +195,13 @@ def _optimize_image_size(cfg: AppConfig) -> None:
     if not cfg.optimize_image_size:
         return
     print("Optimizing image size...")
-    proc = subprocess.run([*ssh_base(), "sudo fstrim -av"], check=False)
+    proc = subprocess.run([*ssh_base(cfg.preparation_host_key), "sudo fstrim -av"], check=False)
     if proc.returncode != 0:
         print("WARN: image-size optimization (fstrim) returned a non-zero status", file=sys.stderr)
 
 
-def _shutdown_external_pid(pid: int) -> None:
-    subprocess.run([*ssh_base(), "sudo systemctl poweroff"], check=False)
+def _shutdown_external_pid(pid: int, *, key: Path) -> None:
+    subprocess.run([*ssh_base(key), "sudo systemctl poweroff"], check=False)
     deadline = time.monotonic() + SHUTDOWN_TIMEOUT
     while time.monotonic() < deadline:
         if not pid_alive(pid):
@@ -235,7 +236,7 @@ def prepare_golden(cfg: AppConfig) -> int:
     print(f"  image                 : {cfg.golden_image}")
     print(f"  UEFI state            : {cfg.golden_vars}")
     print(f"  student home content  : {cfg.student_home_content or '(none)'}")
-    print(f"  browser offline docs  : {cfg.browser_opens_offline_reference}")
+    print(f"  browser start page    : {cfg.browser_start_page}")
     print("  Continue config       : deliberately NOT installed in this step")
 
     if cfg.run.dry_run:
@@ -259,15 +260,16 @@ def prepare_golden(cfg: AppConfig) -> int:
     try:
         print("Waiting for provisioning SSH...")
         wait_for_ssh_service(qemu=qemu)
-        verify_ssh_login()
+        verify_ssh_login(cfg.preparation_host_key)
 
         if cfg.student_home_content is not None:
-            _copy_home_overlay(cfg.student_home_content)
+            _copy_home_overlay(cfg.student_home_content, key=cfg.preparation_host_key)
         else:
             print("No student_home_content configured; overlay skipped.")
 
-        if cfg.browser_opens_offline_reference:
-            _configure_offline_reference_start_page()
+        _configure_browser_start_page(
+            start_page=cfg.browser_start_page, key=cfg.preparation_host_key
+        )
 
         if not cfg.golden_vars.is_file():
             raise FileNotFoundError(f"QEMU did not create the expected UEFI state: {cfg.golden_vars}")
@@ -316,15 +318,15 @@ def finalize_golden(cfg: AppConfig) -> int:
         wait_for_ssh_service(qemu=qemu)
 
     try:
-        verify_ssh_login()
+        verify_ssh_login(cfg.preparation_host_key)
         _install_final_continue_config(cfg)
         _optimize_image_size(cfg)
         print("Shutting down golden image cleanly...")
         if qemu is not None:
-            poweroff_guest(qemu=qemu)
+            poweroff_guest(key=cfg.preparation_host_key, qemu=qemu)
         else:
             assert session_pid is not None
-            _shutdown_external_pid(session_pid)
+            _shutdown_external_pid(session_pid, key=cfg.preparation_host_key)
         _clear_session()
         print("Golden image finalized successfully.")
         return 0

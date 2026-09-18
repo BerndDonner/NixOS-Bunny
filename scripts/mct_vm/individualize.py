@@ -323,18 +323,18 @@ def individualize_images(cfg: AppConfig) -> int:
         try:
             print(f"[{vm}] waiting for provisioning SSH...")
             wait_for_ssh_service(qemu=qemu)
-            verify_ssh_login()
+            verify_ssh_login(cfg.preparation_host_key)
 
             guest_host_file = f"/home/student/NixOS-Bunny/hosts/{vm}.nix"
             _run_logged(
-                [*ssh_base(), "test -f /home/student/NixOS-Bunny/flake.nix && test -d /home/student/NixOS-Bunny/hosts"],
+                [*ssh_base(cfg.preparation_host_key), "test -f /home/student/NixOS-Bunny/flake.nix && test -d /home/student/NixOS-Bunny/hosts"],
                 log_path=vm_log,
             )
 
             local_host_file = REPO_ROOT / "hosts" / f"{vm}.nix"
             print(f"[{vm}] syncing reviewed hosts/{vm}.nix into the guest...")
             _run_logged(
-                [*ssh_base(), f"cat > {shlex.quote(guest_host_file)}"],
+                [*ssh_base(cfg.preparation_host_key), f"cat > {shlex.quote(guest_host_file)}"],
                 log_path=vm_log,
                 input_text=local_host_file.read_text(encoding="utf-8"),
                 echo=False,
@@ -342,33 +342,33 @@ def individualize_images(cfg: AppConfig) -> int:
 
             print(f"[{vm}] nixos-rebuild -> .#{vm}")
             _run_logged(
-                [*ssh_base(), f"sudo nixos-rebuild switch --flake path:/home/student/NixOS-Bunny#{shlex.quote(vm)}"],
+                [*ssh_base(cfg.preparation_host_key), f"sudo nixos-rebuild switch --flake path:/home/student/NixOS-Bunny#{shlex.quote(vm)}"],
                 log_path=vm_log,
             )
 
             wait_for_ssh_service(qemu=qemu)
-            verify_ssh_login()
+            verify_ssh_login(cfg.preparation_host_key)
 
             print(f"[{vm}] provisioning {repo} without Forgejo credentials...")
             _run_logged(
-                remote_script_command([course, student, full_name, email, github_url, forgejo_url]),
+                remote_script_command(cfg.preparation_host_key, [course, student, full_name, email, github_url, forgejo_url]),
                 log_path=vm_log,
                 input_text=_provision_script(),
             )
 
             print(f"[{vm}] validating image...")
             _run_logged(
-                remote_script_command([vm, course, student, full_name, email, github_url, forgejo_url]),
+                remote_script_command(cfg.preparation_host_key, [vm, course, student, full_name, email, github_url, forgejo_url]),
                 log_path=vm_log,
                 input_text=_validate_script(),
             )
 
             if cfg.optimize_image_size:
                 print(f"[{vm}] optimizing image size...")
-                _run_logged([*ssh_base(), "sudo fstrim -av"], log_path=vm_log, check=False)
+                _run_logged([*ssh_base(cfg.preparation_host_key), "sudo fstrim -av"], log_path=vm_log, check=False)
 
             print(f"[{vm}] clean shutdown...")
-            poweroff_guest(qemu=qemu)
+            poweroff_guest(key=cfg.preparation_host_key, qemu=qemu)
             print(f"[{vm}] DONE")
 
         except Exception:
@@ -377,7 +377,7 @@ def individualize_images(cfg: AppConfig) -> int:
                 print(f"[{vm}] QEMU left running for inspection on 127.0.0.1:2222.", file=sys.stderr)
             else:
                 try:
-                    subprocess.run([*ssh_base(), "sudo systemctl poweroff"], check=False)
+                    subprocess.run([*ssh_base(cfg.preparation_host_key), "sudo systemctl poweroff"], check=False)
                     qemu.wait(timeout=20)
                 except Exception:
                     stop_qemu(qemu)

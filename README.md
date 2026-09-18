@@ -117,14 +117,18 @@ user                 student
 password login       disabled
 keyboard-interactive disabled
 root login           disabled
-authorized key       ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFOwgNuwt6tb2+fz7KQ6g+rH5gBCS58d6d7Y1A2O5bMX bernd@tracy
+authorized key       assets/ssh/mct-vm-setup.pub
 ```
 
-This key is the **public** provisioning key only. No private key or passphrase
-is stored in Bunny. `mct-vm.py` uses the corresponding host key
-`~/.ssh/bernd_tracy` directly; an ssh-agent is not required. Because `student`
-is already in `wheel` with passwordless `sudo`, later provisioning can perform
-the required system and user setup over this SSH connection.
+The public setup key is versioned as `assets/ssh/mct-vm-setup.pub` and Nix
+builds exactly that key into Bunny. The private half is never stored in the
+repository; its preparation-host path comes from
+`[provisioning].preparation_host_key` in `config.toml` (normally
+`~/.ssh/mct-vm-setup`). An ssh-agent is not required. `config-check` derives the
+public key from the configured private key and verifies that it matches the
+versioned key. mct-vm never creates or rotates setup keys implicitly. Because
+`student` is already in `wheel` with passwordless `sudo`, later provisioning can
+perform the required system and user setup over this SSH connection.
 
 The socket can be inspected with:
 
@@ -181,9 +185,10 @@ The UEFI state filename is derived automatically by replacing `.qcow2` with
 ```
 
 This starts the configured golden image **visibly**, with the fixed provisioning
-SSH transport `student@127.0.0.1:2222`. The host private key is fixed at
-`~/.ssh/bernd_tracy`; the matching public key is already built into Bunny.
-There is no SSH configuration in `config.toml`.
+SSH transport `student@127.0.0.1:2222`. The transport itself is fixed, while
+the preparation-host private key is selected by
+`[provisioning].preparation_host_key`. Its public half is
+`assets/ssh/mct-vm-setup.pub` and is built into Bunny by Nix.
 
 `prepare-golden` performs the work that is safe before manual GUI setup:
 
@@ -192,7 +197,7 @@ There is no SSH configuration in `config.toml`.
 - includes hidden regular files, preserves unrelated guest files, and ignores
   symlinks/empty directories;
 - **never** copies `.continue/config.yaml`;
-- optionally makes Chrome open the offline `~/reference` documentation;
+- configures Chrome to open exactly `[golden_image].browser_start_page`;
 - leaves the VM running for manual work.
 
 The old `scripts/copy-home-tree.sh` has been absorbed into this command.

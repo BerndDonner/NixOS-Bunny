@@ -8,7 +8,10 @@ from .images import clone_images, prepare_images, update_csv
 from .individualize import individualize_images
 from .nixgen import generate_nix
 from .rollout import rollout_images
-from .runtime import SSH_KEY
+from .runtime import verify_provisioning_key_pair
+
+
+SSH_SETUP_COMMANDS = {"prepare-golden", "finalize-golden", "individualize"}
 
 
 COMMANDS = {
@@ -41,7 +44,9 @@ def _config_check(cfg: AppConfig) -> int:
     print(f"  logs                    : {cfg.logs_dir}")
     print(f"  student home content    : {cfg.student_home_content or '(none)'}")
     print(f"  Continue final config   : {cfg.final_continue_config}")
-    print(f"  provisioning key        : {SSH_KEY}")
+    print(f"  preparation host key    : {cfg.preparation_host_key}")
+    print(f"  Bunny setup public key  : {cfg.provisioning_public_key}")
+    print(f"  browser start page      : {cfg.browser_start_page}")
     print(f"  VM filename suffix      : {cfg.vm_suffix or '(none)'}")
     print(f"  checksums file          : {cfg.checksums_file}")
     print(f"  rollout image source    : {cfg.rollout_prepared_images_dir}")
@@ -49,8 +54,11 @@ def _config_check(cfg: AppConfig) -> int:
 
     if not cfg.assignments_file.is_file():
         print(f"WARN: active assignments file does not exist: {cfg.assignments_file}")
-    if not SSH_KEY.is_file():
-        print(f"WARN: provisioning private key does not exist on this host: {SSH_KEY}")
+    verify_provisioning_key_pair(
+        private_key=cfg.preparation_host_key,
+        public_key=cfg.provisioning_public_key,
+    )
+    print("  setup key pair          : OK")
     if not cfg.final_continue_config.is_file():
         print(f"WARN: final Continue config is missing: {cfg.final_continue_config}")
     if cfg.student_home_content is not None and not cfg.student_home_content.is_dir():
@@ -69,6 +77,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         cfg = load_config()
         command = args[0]
+
+        if command in SSH_SETUP_COMMANDS:
+            verify_provisioning_key_pair(
+                private_key=cfg.preparation_host_key,
+                public_key=cfg.provisioning_public_key,
+            )
 
         if command != "config-check":
             print(f"Mode: {cfg.mode}")
