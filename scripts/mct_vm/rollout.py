@@ -24,7 +24,7 @@ Goal: minimal network load + verifiable compressed artifact + remote unpack.
       C:\Virtual_Machines\<file>.vmdk.zst -> C:\Virtual_Machines\<vm>.vmdk
    The resulting .vmdk is NOT verified (as requested).
 
-EMERGENCY MODE (config.toml: run.rollout_without_verification = true)
+EMERGENCY MODE (scripts/config/config.toml: run.rollout_without_verification = true)
 ----------------------------
 Goal: get a startable .vmdk onto each PC even if remote execution / hashing is not acceptable.
 
@@ -962,7 +962,7 @@ def deploy_one(
 # Config-driven rollout
 # ------------------------
 
-# Technical rollout constants intentionally stay in code. config.toml describes
+# Technical rollout constants intentionally stay in code. scripts/config/config.toml describes
 # desired behaviour, not retry/poll implementation details.
 _ROBOCOPY_RETRIES = 2
 _PING_TIMEOUT_MS = 800

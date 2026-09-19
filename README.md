@@ -11,7 +11,7 @@ pre-commit policy and VS Code course protection.
 
 ## Git identity model
 
-`rollout.csv` contains the human identity, technical Forgejo login and course:
+`scripts/config/rollout.csv` contains the human identity, technical Forgejo login and course:
 
 ```text
 full_name -> Git user.name
@@ -41,7 +41,7 @@ The generic golden host `bunny` deliberately uses `mct.course = UNCONFIGURED`.
 The golden/teacher configuration `bunny` uses `mct.student = donner`.
 
 `hosts/bunnyXX.nix` is generated data.  Before building the golden image,
-regenerate it from the current `rollout.csv`.  The generator removes stale
+regenerate it from the current `scripts/config/rollout.csv`.  The generator removes stale
 `bunnyXX.nix` files automatically, and `flake.nix` discovers the remaining host
 files dynamically.  There is therefore only one active-VM list to maintain: the
 CSV.
@@ -123,7 +123,7 @@ authorized key       assets/ssh/mct-vm-setup.pub
 The public setup key is versioned as `assets/ssh/mct-vm-setup.pub` and Nix
 builds exactly that key into Bunny. The private half is never stored in the
 repository; its preparation-host path comes from
-`[provisioning].preparation_host_key` in `config.toml` (normally
+`[provisioning].preparation_host_key` in `scripts/config/config.toml` (normally
 `~/.ssh/mct-vm-setup`). An ssh-agent is not required. `config-check` derives the
 public key from the configured private key and verifies that it matches the
 versioned key. mct-vm never creates or rotates setup keys implicitly. Because
@@ -140,9 +140,21 @@ and the actual daemon will normally exist only while a connection is active.
 
 ## Configuration and image lifecycle
 
+The VM build and the management-tool environment are deliberately separate flakes:
+
+```bash
+nix build .#qcow2        # repository-root flake: Bunny image
+nix develop ./scripts    # scripts/flake.nix: management environment
+```
+
+The management shell supplies Python and the generic command-line dependencies.
+QEMU itself intentionally comes from the host so the shell does not shadow a
+deliberately selected host QEMU version. The first `nix develop ./scripts` will
+create `scripts/flake.lock`; commit that lock file to pin the tool environment.
+
 `mct-vm.py` has deliberately no command-line options. All persistent settings,
-temporary selections and operational documentation live in the repository-root
-`config.toml`. The command line only chooses the operation:
+temporary selections and operational documentation live in
+`scripts/config/config.toml`. The command line only chooses the operation:
 
 ```bash
 ./scripts/mct-vm.py config-check
@@ -157,12 +169,12 @@ temporary selections and operational documentation live in the repository-root
 ```
 
 `[workflow].mode` selects exactly one image family: `classroom` or `lockdown`.
-They are alternatives, not parallel profiles. Classroom mode uses `rollout.csv`
-and `bunnyXX.*`; lockdown mode uses `rollout-lockdown.csv` and
+They are alternatives, not parallel profiles. Classroom mode uses `scripts/config/rollout.csv`
+and `bunnyXX.*`; lockdown mode uses `scripts/config/rollout-lockdown.csv` and
 `bunnyXX-lockdown.*`. Lockdown individualization is intentionally not expanded
 further until that exam workflow is reviewed again.
 
-Temporary one-run controls are grouped visibly under `[run]` in `config.toml`.
+Temporary one-run controls are grouped visibly under `[run]` in `scripts/config/config.toml`.
 Non-default temporary values are printed before an operation starts.
 
 **Phases 1, 2 and 3 use QCOW2 only.** VMDK conversion happens only after the
@@ -174,7 +186,7 @@ host-specific images are finished.
 nix build .#qcow2
 ```
 
-Name/copy the image as the active `[golden_image].file` from `config.toml`.
+Name/copy the image as the active `[golden_image].file` from `scripts/config/config.toml`.
 The UEFI state filename is derived automatically by replacing `.qcow2` with
 `.OVMF_VARS.fd`.
 
@@ -340,7 +352,7 @@ sudo systemctl restart mct-bootstrap-nixos-bunny.service
 
 ## Main files
 
-- `config.toml` — the single user-facing configuration/help surface for mct-vm
+- `scripts/config/config.toml` — the single user-facing configuration/help surface for mct-vm
 - `flake.nix` — NixOS configurations
 - `modules/mct-vm.nix` — system/desktop/VM configuration
 - `modules/home/student.nix` — Home Manager entry point for `student`
@@ -350,3 +362,5 @@ sudo systemctl restart mct-bootstrap-nixos-bunny.service
 - `scripts/mct_vm/golden.py` — phase-2 prepare/finalize automation
 - `scripts/mct_vm/individualize.py` — phase-3 classroom individualization
 - `scripts/mct-vm.py` — single entry point for image preparation and rollout
+- `scripts/flake.nix` — separate development shell for the management tools
+- `scripts/config/rollout.csv` — authoritative classroom assignment/inventory input

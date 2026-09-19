@@ -1,6 +1,6 @@
 # VM Rollout
 
-The integrated rollout is driven by the repository-root `config.toml`; there are
+The integrated rollout is driven by the `scripts/config/config.toml`; there are
 no rollout command-line options anymore.
 
 Before a run, review especially:

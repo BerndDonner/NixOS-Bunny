@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """MCT VM lifecycle entry point.
 
-All configuration and help live in the repository-root config.toml. The command
+All tool configuration and help live in scripts/config/config.toml. The command
 line intentionally accepts exactly one command and no options.
 """
 

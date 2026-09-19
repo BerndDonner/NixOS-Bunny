@@ -23,8 +23,8 @@
 
 [workflow]
 # Exactly one image family is active at a time.
-# "classroom" uses rollout.csv and bunnyXX.* images.
-# "lockdown"  uses rollout-lockdown.csv and bunnyXX-lockdown.* images.
+# "classroom" uses scripts/config/rollout.csv and bunnyXX.* images.
+# "lockdown"  uses scripts/config/rollout-lockdown.csv and bunnyXX-lockdown.* images.
 # The two modes are alternatives, never parallel profiles in one run.
 mode = "classroom"
 

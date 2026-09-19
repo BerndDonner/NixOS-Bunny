@@ -202,7 +202,7 @@ in {
     initialPassword = "mct";
     shell = pkgs.bashInteractive;
     # The public half is versioned with the VM definition. The private half
-    # exists only on the preparation host and is selected in config.toml.
+    # exists only on the preparation host and is selected in scripts/config/config.toml.
     openssh.authorizedKeys.keyFiles = [
       ../assets/ssh/mct-vm-setup.pub
     ];

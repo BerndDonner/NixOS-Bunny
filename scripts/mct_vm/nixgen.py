@@ -53,7 +53,7 @@ def generate_nix(*, csv_path: str, target_dir: str, dry_run: bool = False) -> in
     wanted = {f"{vm}.nix" for vm, _content in hosts}
 
     # Host files are generated data. Remove bunnyXX definitions that are no
-    # longer active in rollout.csv, while keeping bunny.nix/default.nix and
+    # longer active in the rollout CSV, while keeping bunny.nix/default.nix and
     # any unrelated files intact.
     for old_path in sorted(out_dir.glob("bunny[0-9][0-9].nix")):
         if old_path.name not in wanted:

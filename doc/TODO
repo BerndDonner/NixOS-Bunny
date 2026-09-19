@@ -1,11 +1,11 @@
 # Golden image / 2026-27
 
-Current lifecycle is config-driven through `config.toml` and `scripts/mct-vm.py`.
+Current lifecycle is config-driven through `scripts/config/config.toml` and `scripts/mct-vm.py`.
 
 Before a new classroom image round:
 
-1. Review `config.toml`, especially `[workflow]`, `[golden_image]` and `[run]`.
-2. Review/update `rollout.csv` and run `./scripts/mct-vm.py generate-nix` if the
+1. Review `scripts/config/config.toml`, especially `[workflow]`, `[golden_image]` and `[run]`.
+2. Review/update `scripts/config/rollout.csv` and run `./scripts/mct-vm.py generate-nix` if the
    active VM/student mapping changed.
 3. Build the generic QCOW2 (`nix build .#qcow2`) and place/name it as configured.
 4. Run `./scripts/mct-vm.py prepare-golden`.

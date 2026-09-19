@@ -6,8 +6,10 @@ from pathlib import Path
 from typing import Any
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-CONFIG_PATH = REPO_ROOT / "config.toml"
+SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = SCRIPTS_ROOT.parent
+CONFIG_DIR = SCRIPTS_ROOT / "config"
+CONFIG_PATH = CONFIG_DIR / "config.toml"
 
 
 @dataclass(frozen=True)
@@ -66,8 +68,8 @@ class AppConfig:
     @property
     def assignments_file(self) -> Path:
         if self.mode == "classroom":
-            return REPO_ROOT / "rollout.csv"
-        return REPO_ROOT / "rollout-lockdown.csv"
+            return CONFIG_DIR / "rollout.csv"
+        return CONFIG_DIR / "rollout-lockdown.csv"
 
     @property
     def checksums_file(self) -> Path:

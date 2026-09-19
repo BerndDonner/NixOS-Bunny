@@ -15,7 +15,7 @@
 
       username = "student";
 
-      # The host files are generated from rollout.csv.  Discover exactly the
+      # The host files are generated from scripts/config/rollout.csv. Discover exactly the
       # active bunnyXX definitions instead of maintaining a second VM list here.
       # bunny.nix remains the generic/golden configuration.
       activeHostFiles =
