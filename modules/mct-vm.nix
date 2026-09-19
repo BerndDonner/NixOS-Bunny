@@ -93,6 +93,23 @@ in {
   virtualisation.vmware.guest.enable = true;
   virtualisation.hypervGuest.enable = true;
 
+  # Hyper-V USB/IP guest support.
+  # The Windows host side is provided by usbipd-win.  The guest-side usbip
+  # command is installed below.  Load the virtual USB/IP host controller only
+  # when systemd detects that Bunny is actually running under Hyper-V.
+  systemd.services.mct-hyperv-usbip-vhci = {
+    description = "Load USB/IP virtual host controller on Hyper-V";
+    wantedBy = [ "multi-user.target" ];
+
+    unitConfig.ConditionVirtualization = "microsoft";
+
+    serviceConfig = {
+      Type = "oneshot";
+      ExecStart = "${pkgs.kmod}/bin/modprobe vhci_hcd";
+      RemainAfterExit = true;
+    };
+  };
+
 
   # --- Boot + filesystems (required for nixos-rebuild switch on a running VM)
 
@@ -234,6 +251,10 @@ in {
     ripgrep
     wl-clipboard
     magic-wormhole
+
+    # USB/IP client tools for Hyper-V USB passthrough.  Harmless on QEMU and
+    # VMware; vhci_hcd is loaded only by the Hyper-V-conditioned systemd unit.
+    config.boot.kernelPackages.usbip
 
   ];
 
