@@ -43,17 +43,19 @@ file = "golden-26.05.qcow2"
 
 # Optional source tree overlaid onto /home/student by `prepare-golden`.
 # Hidden files are included, unrelated guest files are preserved, symlinks and
-# empty directories are ignored. .continue/config.yaml is always excluded here
-# because the final Continue configuration is installed only by finalize-golden.
+# empty directories are ignored. .continue/config.yaml is always excluded from
+# this overlay; prepare-golden installs the authoritative repository copy from
+# assets/continue/config.yaml immediately afterwards so it can be tested during
+# the manual phase.
 # Leave empty if there is currently nothing to overlay.
 student_home_content = "~/VirtualMashines/bunny-files-to-copy"
 
 # Page Chrome shall open in the finished golden image. This is a path inside
 # the guest, not on the preparation host. `finalize-golden` verifies that the
 # file exists and then configures a managed Chrome policy for exactly this page.
-# This intentionally happens AFTER manual Chrome use/cleanup, so passwords,
-# cookies and browsing state can be wiped first without losing the final start
-# page. No automatic index.html search.
+# This intentionally happens in finalize-golden, after the manual VM has been
+# shut down and sensitive Chrome state has been cleaned. Chrome preferences,
+# bookmarks and extensions are preserved. No automatic index.html search.
 browser_start_page = "~/reference/www.arduino.cc/en/Reference/HomePage.html"
 
 [provisioning]
@@ -110,7 +112,9 @@ only_pc = ""
 dry_run = false
 
 # If prepare-golden, finalize-golden or individualize fails, leave its QEMU VM
-# running for manual diagnosis instead of stopping it automatically.
+# running for manual diagnosis instead of stopping it automatically. Note that
+# a normal finalize-golden run requires the visible/manual prepare-golden VM to
+# have been shut down cleanly first.
 keep_failed_vm_running = false
 
 # Allow `clone` to replace already existing bunnyXX image + UEFI-state files.

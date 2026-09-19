@@ -196,18 +196,24 @@ the preparation-host private key is selected by
   `/home/student`;
 - includes hidden regular files, preserves unrelated guest files, and ignores
   symlinks/empty directories;
-- **never** copies `.continue/config.yaml`;
+- deliberately ignores any `.continue/config.yaml` from the home overlay, then
+  installs and verifies the authoritative repository copy from
+  `assets/continue/config.yaml`;
 - deliberately does **not** set the final Chrome start page yet;
 - leaves the VM running for manual work.
 
 The old `scripts/copy-home-tree.sh` has been absorbed into this command.
 
 Now perform the deliberate manual golden-image work, especially installing and
-starting the VS Code extensions/Continue so they can create whatever initial
-state they need. Chrome may also be used freely during this phase. Before
-finalization, remove the Chrome profile/state you do not want in the golden image
-(e.g. passwords, cookies, logins and history); the final offline start page is
-installed only afterwards by `finalize-golden`.
+starting the VS Code extensions and testing Continue with its **final reviewed
+configuration already in place**. Chrome may also be used freely during this
+phase, including manual privacy/search-engine setup.
+
+When the manual work is complete, **shut the VM down cleanly** before running
+`finalize-golden`. Do not manually delete the whole Chrome profile: finalization
+removes Bash history plus sensitive Chrome state (saved passwords, cookies/login
+sessions, browsing/session/site data and caches) while preserving Chrome
+preferences, bookmarks and extensions.
 
 ### Phase 2b — finalize the golden image
 
@@ -215,17 +221,21 @@ installed only afterwards by `finalize-golden`.
 ./scripts/mct-vm.py finalize-golden
 ```
 
-If the VM from `prepare-golden` is still running, the command reconnects to that
-exact session. If it was shut down meanwhile, it starts the configured golden
-image again headless.
+The visible/manual VM **must already be shut down cleanly**. If the
+`prepare-golden` QEMU process is still running, `finalize-golden` refuses to
+continue. It then boots the configured golden image headless for a deterministic
+cleanup pass.
 
 Finalization:
 
-1. installs the authoritative `assets/continue/config.yaml` as
-   `~/.continue/config.yaml` **after** Continue has been installed/started;
-2. verifies the copied Continue configuration;
+1. verifies that `~/.continue/config.yaml` still matches the authoritative
+   repository copy installed by `prepare-golden`;
+2. removes Bash command history and sensitive Chrome state from the manual
+   phase, including saved passwords, cookies/login sessions, history, open-tab
+   sessions, site storage and caches, while preserving Chrome preferences,
+   bookmarks and extensions;
 3. verifies `[golden_image].browser_start_page` and installs the final managed
-   Chrome policy **after** all manual Chrome use/cleanup;
+   Chrome start-page policy;
 4. optionally optimizes image size (`[images].optimize_image_size`; currently
    implemented with guest `fstrim` plus QEMU discard);
 5. shuts the VM down cleanly.
@@ -335,7 +345,7 @@ sudo systemctl restart mct-bootstrap-nixos-bunny.service
 - `modules/home/student.nix` — Home Manager entry point for `student`
 - `modules/home/modules/git.nix` — global Git defaults and recovery aliases
 - `hosts/*.nix` — host-specific Git identity/course data
-- `assets/continue/config.yaml` — final Continue configuration installed in phase 2b
+- `assets/continue/config.yaml` — final Continue configuration installed and verified in phase 2a
 - `scripts/mct_vm/golden.py` — phase-2 prepare/finalize automation
 - `scripts/mct_vm/individualize.py` — phase-3 classroom individualization
 - `scripts/mct-vm.py` — single entry point for image preparation and rollout
