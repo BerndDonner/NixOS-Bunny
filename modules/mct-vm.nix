@@ -91,6 +91,7 @@ in {
 
   # VM guest integration
   virtualisation.vmware.guest.enable = true;
+  virtualisation.hypervGuest.enable = true;
 
 
   # --- Boot + filesystems (required for nixos-rebuild switch on a running VM)
@@ -111,7 +112,7 @@ in {
     fsType = "vfat";
   };
 
-  # --- Initrd: storage/network drivers for portable VM images (QEMU + VMware)
+  # --- Initrd: storage/network drivers for portable VM images (QEMU + VMware + Hyper-V)
   # Some image builders don't auto-include the right modules. Ensure root disk appears early.
   boot.initrd.availableKernelModules = lib.mkBefore [
     # QEMU virtio
@@ -138,7 +139,8 @@ in {
 
   # --- Desktop: KDE Plasma (Wayland default; X11 selectable)
   services.xserver.enable = true;
-  services.xserver.videoDrivers = [ "vmware" ];
+  # @chatGPT remind Bernd to test if this is really necessary
+  services.xserver.videoDrivers = [ "vmware" "modesetting" "fbdev" ];
 
   services.xserver.xkb = {
     layout = "de";
