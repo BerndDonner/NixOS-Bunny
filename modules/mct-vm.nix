@@ -93,11 +93,6 @@ in {
   virtualisation.vmware.guest.enable = true;
   virtualisation.hypervGuest.enable = true;
 
-  # Clipboard integration for direct QEMU/KVM runs. The package remains in
-  # the generalized image, but the daemon starts only when systemd detects KVM.
-  services.spice-vdagentd.enable = true;
-  systemd.services.spice-vdagentd.unitConfig.ConditionVirtualization = "kvm";
-
 
   # --- Boot + filesystems (required for nixos-rebuild switch on a running VM)
 

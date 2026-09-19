@@ -35,7 +35,7 @@ Options:
   --port <PORT>         Host port for --ssh (default: 2222)
                         Valid only together with --ssh
   --share <DIRECTORY>   Share one host directory with the VM via virtio-9p
-  --headless            Run without a GTK window (for automated provisioning)
+  --headless            Run without an SDL window (for automated provisioning)
   --discard             Pass guest discard/TRIM through to the qcow2 image
 
   --no-kvm              Disable KVM and use QEMU software emulation
@@ -462,10 +462,7 @@ if [[ "$HEADLESS" -eq 1 ]]; then
 else
   QEMU_CMD+=(
     -device virtio-vga-gl
-    -device virtio-serial-pci
-    -chardev qemu-vdagent,id=vdagent,name=vdagent,clipboard=on,mouse=off
-    -device virtserialport,chardev=vdagent,name=com.redhat.spice.0
-    -display gtk,gl=on,clipboard=on
+    -display sdl,gl=on
   )
 fi
 
