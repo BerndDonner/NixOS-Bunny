@@ -187,27 +187,6 @@ def _install_final_continue_config(cfg: AppConfig) -> None:
     print("Final Continue configuration installed and verified.")
 
 
-def _verify_final_continue_config(cfg: AppConfig) -> None:
-    source = cfg.final_continue_config
-    if not source.is_file():
-        raise FileNotFoundError(f"Final Continue configuration not found: {source}")
-
-    local_sha = hashlib.sha256(source.read_bytes()).hexdigest()
-    verify = subprocess.run(
-        [*ssh_base(cfg.preparation_host_key), 'sha256sum "$HOME/.continue/config.yaml" | cut -d" " -f1'],
-        stdout=subprocess.PIPE,
-        text=True,
-        check=False,
-    )
-    remote_sha = (verify.stdout or "").strip()
-    if verify.returncode != 0 or remote_sha != local_sha:
-        raise RuntimeError(
-            "Continue config changed or is missing after the manual phase: "
-            f"expected={local_sha}, remote={remote_sha or '<none>'}"
-        )
-    print("Final Continue configuration still matches the reviewed repository copy.")
-
-
 def _clean_manual_user_traces(cfg: AppConfig) -> None:
     # finalize-golden is run only after the visible/manual VM has been shut down.
     # It then boots the image headless, so there is no Chrome process that can
@@ -352,7 +331,6 @@ def finalize_golden(cfg: AppConfig) -> int:
 
     print("Phase 2b — finalize golden image")
     print(f"  image                 : {cfg.golden_image}")
-    print(f"  Continue config       : {cfg.final_continue_config} (verify only)")
     print("  manual trace cleanup  : Bash history + sensitive Chrome state")
     print(f"  browser start page    : {cfg.browser_start_page}")
     print(f"  optimize image size   : {cfg.optimize_image_size}")
@@ -385,7 +363,6 @@ def finalize_golden(cfg: AppConfig) -> int:
 
     try:
         verify_ssh_login(cfg.preparation_host_key)
-        _verify_final_continue_config(cfg)
         _clean_manual_user_traces(cfg)
         # The start page is a managed system policy, so it is installed only
         # after the manual Chrome state has been cleaned. User preferences such

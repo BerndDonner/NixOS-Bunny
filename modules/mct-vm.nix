@@ -215,6 +215,7 @@ in {
     # KDE apps
     kdePackages.konsole
     kdePackages.kate
+    kdePackages.kcalc
     kdePackages.kwallet-pam
 
     # Must-have tooling

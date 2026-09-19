@@ -205,7 +205,7 @@ fail() {
 [[ -d "$HOME/reference" ]] || fail "offline documentation directory $HOME/reference is missing"
 command -v code >/dev/null || fail "VS Code command 'code' is missing"
 command -v google-chrome >/dev/null || command -v google-chrome-stable >/dev/null || fail "Google Chrome command is missing"
-[[ -f "$HOME/.continue/config.yaml" ]] || fail "final Continue configuration is missing; prepare-golden was not completed"
+[[ -f "$HOME/.continue/config.yaml" ]] || fail "Continue configuration is missing; phase 2 was not completed"
 
 [[ -d "$repo_dir/.git" ]] || fail "$repo_dir is not a Git repository"
 cd "$repo_dir"

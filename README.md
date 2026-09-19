@@ -204,10 +204,10 @@ the preparation-host private key is selected by
 
 The old `scripts/copy-home-tree.sh` has been absorbed into this command.
 
-Now perform the deliberate manual golden-image work, especially installing and
-starting the VS Code extensions and testing Continue with its **final reviewed
-configuration already in place**. Chrome may also be used freely during this
-phase, including manual privacy/search-engine setup.
+Now perform the deliberate manual golden-image work. The concrete checklist is
+kept in `doc/golden-phase2-checklist.md`. Continue already has its reviewed
+configuration in place before the extension is installed, so the real server
+connection can be tested during this single manual VM session.
 
 When the manual work is complete, **shut the VM down cleanly** before running
 `finalize-golden`. Do not manually delete the whole Chrome profile: finalization
@@ -228,17 +228,18 @@ cleanup pass.
 
 Finalization:
 
-1. verifies that `~/.continue/config.yaml` still matches the authoritative
-   repository copy installed by `prepare-golden`;
-2. removes Bash command history and sensitive Chrome state from the manual
+1. removes Bash command history and sensitive Chrome state from the manual
    phase, including saved passwords, cookies/login sessions, history, open-tab
    sessions, site storage and caches, while preserving Chrome preferences,
    bookmarks and extensions;
-3. verifies `[golden_image].browser_start_page` and installs the final managed
+2. verifies `[golden_image].browser_start_page` and installs the final managed
    Chrome start-page policy;
-4. optionally optimizes image size (`[images].optimize_image_size`; currently
+3. optionally optimizes image size (`[images].optimize_image_size`; currently
    implemented with guest `fstrim` plus QEMU discard);
-5. shuts the VM down cleanly.
+4. shuts the VM down cleanly.
+
+`finalize-golden` deliberately does **not** verify or replace the Continue
+configuration. Continue is tested as part of the manual phase-2 checklist.
 
 ### Host generation
 
@@ -287,8 +288,8 @@ already cloned `bunnyXX.qcow2` images. For each selected classroom VM it:
 7. creates/selects the student's local branch (teacher remains on `master`);
 8. runs the course repository `_config/setup.sh` for hooks and VS Code read-only
    protection;
-9. validates hostname, Git/MCT identity, repository/branch state and the finalized
-   Continue config;
+9. validates hostname, Git/MCT identity, repository/branch state and the presence
+   of the Continue config;
 10. optionally optimizes image size;
 11. shuts down cleanly.
 
@@ -345,7 +346,7 @@ sudo systemctl restart mct-bootstrap-nixos-bunny.service
 - `modules/home/student.nix` — Home Manager entry point for `student`
 - `modules/home/modules/git.nix` — global Git defaults and recovery aliases
 - `hosts/*.nix` — host-specific Git identity/course data
-- `assets/continue/config.yaml` — final Continue configuration installed and verified in phase 2a
+- `assets/continue/config.yaml` — reviewed Continue configuration installed before the manual phase
 - `scripts/mct_vm/golden.py` — phase-2 prepare/finalize automation
 - `scripts/mct_vm/individualize.py` — phase-3 classroom individualization
 - `scripts/mct-vm.py` — single entry point for image preparation and rollout

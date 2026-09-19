@@ -9,13 +9,14 @@ Before a new classroom image round:
    active VM/student mapping changed.
 3. Build the generic QCOW2 (`nix build .#qcow2`) and place/name it as configured.
 4. Run `./scripts/mct-vm.py prepare-golden`.
-5. Do the deliberate manual GUI work (VS Code extensions, Continue install/start,
-   tests). `prepare-golden` has already installed the final reviewed Continue
-   config, so test Continue with the same configuration students will receive.
-6. Shut the golden VM down cleanly.
-7. Run `./scripts/mct-vm.py finalize-golden`; this verifies the Continue config,
-   removes Bash/Chrome manual-work traces without deleting Chrome preferences,
-   installs the managed start page, and cleanly freezes the golden image.
+5. Work through `doc/golden-phase2-checklist.md`. `prepare-golden` has already
+   installed the reviewed Continue config so the real Continue connection can be
+   tested during this one manual VM session.
+6. Shut the golden VM down cleanly as the final checklist step.
+7. Run `./scripts/mct-vm.py finalize-golden`; this removes Bash/Chrome
+   manual-work traces without deleting Chrome preferences, installs the managed
+   start page, and cleanly freezes the golden image. It deliberately does not
+   verify or replace the Continue config.
 8. Run `clone`, then `individualize` (pilot with `[run].only_vms` first).
 9. Run `prepare-images`, `update-csv`, then `rollout`.
 

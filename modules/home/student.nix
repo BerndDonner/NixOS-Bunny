@@ -10,6 +10,22 @@
   home.stateVersion = "26.05";
   programs.home-manager.enable = true;
 
+  xdg.userDirs = {
+    enable = true;
+    createDirectories = true;
+
+    desktop = null;
+    documents = null;
+    music = null;
+    pictures = null;
+    projects = null;
+    publicShare = null;
+    templates = null;
+    videos = null;
+
+    download = "${config.home.homeDirectory}/Downloads";
+  };
+
   # Preferred defaults for the user
   home.sessionVariables = {
     EDITOR = "micro";
