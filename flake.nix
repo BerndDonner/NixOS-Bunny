@@ -91,26 +91,19 @@
 
       packages.${system} = let
         perHost =
-          builtins.listToAttrs (builtins.concatLists (map (host: [
-            {
-              name = "${host}-qcow2";
-              value = nixosConfs.${host}.config.system.build.images."qemu-efi";
-            }
-            {
-              name = "${host}-vmware";
-              value = nixosConfs.${host}.config.system.build.images.vmware;
-            }
-          ]) packageHosts));
+          builtins.listToAttrs (map (host: {
+            name = "${host}-qcow2";
+            value = nixosConfs.${host}.config.system.build.images."qemu-efi";
+          }) packageHosts);
       in
         perHost // {
-          # Backwards-compatible shortcuts (golden image = bunny)
-          qcow2  = bunnySystem.config.system.build.images."qemu-efi";
-          vmware = bunnySystem.config.system.build.images.vmware;
-          default = bunnySystem.config.system.build.images.vmware;
+          # Golden image shortcut (bunny). QCOW2 is the canonical build artifact;
+          # deployment formats such as VMDK are exported only after phase 3.
+          qcow2 = bunnySystem.config.system.build.images."qemu-efi";
+          default = bunnySystem.config.system.build.images."qemu-efi";
 
-          # Lockdown golden image shortcuts
-          qcow2-lockdown  = bunnyLockdownSystem.config.system.build.images."qemu-efi";
-          vmware-lockdown = bunnyLockdownSystem.config.system.build.images.vmware;
+          # Lockdown golden image shortcut
+          qcow2-lockdown = bunnyLockdownSystem.config.system.build.images."qemu-efi";
         };
     };
 }
