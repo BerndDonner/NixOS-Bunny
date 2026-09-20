@@ -92,7 +92,7 @@ prepared_images_dir = "images"
 # a dedicated NixOS-Bunny rollout directory, not at the filesystem root or your
 # home directory. Example:
 #   staging_dir = "/run/media/bernd/MCT-ROLLOUT/NixOS-Bunny"
-staging_dir = ""
+staging_dir = "/run/media/bernd/Extreme SSD/rollout_2627_1"
 
 # Target directory on the Windows classroom PCs.
 windows_vm_directory = 'C:\Virtual_Machines'
