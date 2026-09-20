@@ -4,11 +4,12 @@ import sys
 
 from .config import CONFIG_PATH, AppConfig, load_config, print_run_controls
 from .golden import finalize_golden, prepare_golden
-from .images import clone_images, prepare_images, update_csv
+from .images import clone_images, prepare_images
 from .individualize import individualize_images
 from .nixgen import generate_nix
 from .rollout import rollout_images
 from .runtime import verify_provisioning_key_pair
+from .stage import stage_rollout
 
 
 SSH_SETUP_COMMANDS = {"prepare-golden", "finalize-golden", "individualize"}
@@ -22,7 +23,7 @@ COMMANDS = {
     "clone",
     "individualize",
     "prepare-images",
-    "update-csv",
+    "stage-rollout",
     "rollout",
 }
 
@@ -48,8 +49,8 @@ def _config_check(cfg: AppConfig) -> int:
     print(f"  Bunny setup public key  : {cfg.provisioning_public_key}")
     print(f"  browser start page      : {cfg.browser_start_page}")
     print(f"  VM filename suffix      : {cfg.vm_suffix or '(none)'}")
-    print(f"  checksums file          : {cfg.checksums_file}")
     print(f"  rollout image source    : {cfg.rollout_prepared_images_dir}")
+    print(f"  rollout staging dir     : {cfg.rollout_staging_dir or '(not configured)'}")
     print(f"  Windows VM directory    : {cfg.rollout_windows_vm_directory}")
 
     if not cfg.assignments_file.is_file():
@@ -106,8 +107,8 @@ def main(argv: list[str] | None = None) -> int:
             return individualize_images(cfg)
         if command == "prepare-images":
             return prepare_images(cfg)
-        if command == "update-csv":
-            return update_csv(cfg)
+        if command == "stage-rollout":
+            return stage_rollout(cfg)
         if command == "rollout":
             return rollout_images(cfg)
         raise AssertionError(command)

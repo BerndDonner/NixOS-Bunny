@@ -11,7 +11,7 @@
 #   ./scripts/mct-vm.py clone
 #   ./scripts/mct-vm.py individualize
 #   ./scripts/mct-vm.py prepare-images
-#   ./scripts/mct-vm.py update-csv
+#   ./scripts/mct-vm.py stage-rollout
 #   ./scripts/mct-vm.py rollout
 #
 # Relative paths are resolved from the repository root.
@@ -82,10 +82,17 @@ public_source = "https://github.com/BerndDonner/{repo}.git"
 student_origin = "https://forgejo.meisterk.de/Microcontrollertechnik/{repo}.git"
 
 [rollout]
-# Directory containing the finished .vmdk.zst files when `rollout` is run.
-# This is intentionally separate from paths.vm_images_dir because rollout may
-# be executed from a different machine/OS than image preparation.
-prepared_images_dir = "."
+# Directory containing the finished .vmdk.zst + .sha256 pairs when `rollout`
+# is run. `stage-rollout` creates exactly this directory on the rollout SSD.
+# This path is relative to the repository / staged rollout root.
+prepared_images_dir = "images"
+
+# Dedicated directory on the mounted rollout SSD. Required only by
+# `stage-rollout`; leave empty until the SSD mount path is known. Point this at
+# a dedicated NixOS-Bunny rollout directory, not at the filesystem root or your
+# home directory. Example:
+#   staging_dir = "/run/media/bernd/MCT-ROLLOUT/NixOS-Bunny"
+staging_dir = ""
 
 # Target directory on the Windows classroom PCs.
 windows_vm_directory = 'C:\Virtual_Machines'
@@ -103,12 +110,12 @@ windows_tools_dir = "tools"
 [run]
 # Limit `clone`, `individualize` and `prepare-images` to these VM names,
 # e.g. ["bunny06"]. Empty = all active VMs from the active rollout CSV.
-only_vms = ["bunny12"]
+only_vms = []
 
 # Limit `rollout` to this Windows PC name. Empty = all active PCs.
 only_pc = ""
 
-# Show/validate the planned work without modifying images, CSVs or remote PCs.
+# Show/validate the planned work without modifying images, the staging SSD or remote PCs.
 dry_run = false
 
 # If prepare-golden, finalize-golden or individualize fails, leave its QEMU VM

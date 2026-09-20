@@ -3,11 +3,12 @@ r"""
 mct-vm rollout — MCT VM Rollout (VMware)
 
 CSV format is the canonical MCT rollout CSV:
-  pcname,vm,course,forgejo,full_name,email,file,sha256
+  pcname,vm,course,forgejo,full_name,email
 
-Where:
-  - file   = e.g. bunny00.vmdk.zst
-  - sha256 = expected SHA256 of the *compressed* file (.vmdk.zst)
+The deployment filename is derived centrally from the VM name and workflow
+suffix. The expected SHA256 is read from the sidecar next to the image, e.g.:
+  images\bunny00.vmdk.zst
+  images\bunny00.vmdk.zst.sha256
 
 NORMAL MODE (default)
 ---------------------
@@ -47,17 +48,18 @@ from __future__ import annotations
 
 import csv
 import datetime as _dt
-import hashlib
 import os
 import re
 import subprocess
 import sys
 import tempfile
 import time
-from typing import Optional, Dict, Iterator, Tuple, List
+from pathlib import Path
+from typing import Optional, Dict, List
 
+from .artifacts import image_artifacts, sha256_file, verify_checksum_sidecar
 from .config import AppConfig
-from .csv_model import read_rollout_csv, require_fields
+from .csv_model import CsvRow, read_rollout_csv, require_fields
 
 _HEX64_RE = re.compile(r"^[0-9A-Fa-f]{64}$")
 
@@ -105,7 +107,7 @@ def ping_host(pc: str, *, timeout_ms: int, logfile: Optional[str]) -> bool:
     )
     ok = (p.returncode == 0)
     if not ok:
-        log("WARN", f"Ping failed: {pc} (skipping)", logfile=logfile)
+        log("WARN", f"Ping failed: {pc}", logfile=logfile)
         return False
     return True
 
@@ -158,20 +160,6 @@ def write_text_file(path: str, content: str, *, dry_run: bool, logfile: Optional
         os.makedirs(parent, exist_ok=True)
     with open(path, "w", encoding="utf-8", errors="replace") as f:
         f.write(content)
-
-
-def iter_csv_rows(csv_path: str) -> Iterator[Tuple[int, List[str]]]:
-    with open(csv_path, "r", encoding="utf-8-sig", newline="") as f:
-        reader = csv.reader(f)
-        for idx, row in enumerate(reader, start=1):
-            if not row:
-                continue
-            if row and row[0].strip().startswith("#"):
-                continue
-            # Header allowed. Accept common first-column names.
-            if idx == 1 and row and row[0].strip().lower() in {"pc", "pcname", "host", "computer"}:
-                continue
-            yield idx, row
 
 
 def _win_join(a: str, b: str) -> str:
@@ -687,11 +675,7 @@ def remote_unpack_via_schtasks(
 # ------------------------
 
 def sha256_local_file(path: str) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(8 * 1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest().lower()
+    return sha256_file(Path(path))
 
 
 def append_emergency_manifest(
@@ -795,7 +779,7 @@ def deploy_one(
         log("DEBUG", f"MODE={'EMERGENCY' if emergency else 'NORMAL'}", logfile=logfile)
 
     if not ping_host(pc, timeout_ms=ping_timeout_ms, logfile=logfile):
-        return
+        raise ConnectionError(f"Target PC is not reachable by ping: {pc}")
 
     ensure_dir(unc_target, dry_run=dry_run, logfile=logfile)
     ensure_dir(unc_tools, dry_run=dry_run, logfile=logfile)
@@ -1018,27 +1002,47 @@ def rollout_images(cfg: AppConfig) -> int:
 
     only = cfg.run.only_pc.strip().lower()
     failures = 0
-    matched = 0
 
     try:
         doc = read_rollout_csv(cfg.assignments_file)
-        for row in doc.active_rows():
-            require_fields(row, ["pcname", "vm", "file", "sha256"], command="rollout")
-            pc = row.raw["pcname"].strip()
-            vm = row.vm
-            filename = row.raw["file"].strip()
-            sha = row.raw["sha256"].strip()
-            deploy_vm = f"{vm}{cfg.vm_suffix}"
+        selected: list[tuple[CsvRow, str, str, str]] = []
 
+        # Preflight the complete selected rollout before touching any classroom
+        # PC.  The CSV contains only the PC/VM mapping; image filenames and
+        # checksums are derived from the canonical artifact naming rules.
+        for row in doc.active_rows():
+            require_fields(row, ["pcname", "vm"], command="rollout")
+            pc = row.raw["pcname"].strip()
             if only and pc.lower() != only:
                 continue
 
-            matched += 1
+            artifacts = image_artifacts(row.vm, cfg.vm_suffix)
+            local_image = artifacts.compressed(cfg.rollout_prepared_images_dir)
+            local_sidecar = artifacts.checksum(cfg.rollout_prepared_images_dir)
+            sha = verify_checksum_sidecar(local_image, local_sidecar)
+            selected.append((row, pc, artifacts.stem, sha))
+
+        if only and not selected:
+            log("WARN", f"No active CSV entries matched only_pc={cfg.run.only_pc!r}", logfile=logfile)
+            log("INFO", f"Logfile: {os.path.abspath(logfile)}", logfile=logfile)
+            print(f'Log: "{os.path.abspath(logfile)}"')
+            return 0
+
+        if not selected:
+            log("WARN", "No active rollout entries found.", logfile=logfile)
+            log("INFO", f"Logfile: {os.path.abspath(logfile)}", logfile=logfile)
+            print(f'Log: "{os.path.abspath(logfile)}"')
+            return 0
+
+        log("INFO", f"Local preflight OK: {len(selected)} image(s) + checksum sidecars verified", logfile=logfile)
+
+        for row, pc, deploy_vm, sha in selected:
+            artifacts = image_artifacts(row.vm, cfg.vm_suffix)
             try:
                 deploy_one(
                     pc=pc,
                     vm=deploy_vm,
-                    filename=filename,
+                    filename=artifacts.compressed_name,
                     expected_sha=sha,
                     src_dir=src_dir,
                     tools_dir=tools_dir,
@@ -1060,13 +1064,10 @@ def rollout_images(cfg: AppConfig) -> int:
                 log("ERROR", f"Line {row.line_no}: {pc},{deploy_vm}: {exc}", logfile=logfile)
 
     except (OSError, csv.Error, UnicodeError, ValueError) as exc:
-        log("ERROR", f"CSV read/parse failed: {exc}", logfile=logfile)
+        log("ERROR", f"Rollout preflight failed: {exc}", logfile=logfile)
         log("INFO", f"Logfile: {os.path.abspath(logfile)}", logfile=logfile)
         print(f'Log: "{os.path.abspath(logfile)}"')
         return 2
-
-    if only and matched == 0:
-        log("WARN", f"No active CSV entries matched only_pc={cfg.run.only_pc!r}", logfile=logfile)
 
     if failures:
         log("ERROR", f"=== Rollout finished with {failures} error(s) ===", logfile=logfile)

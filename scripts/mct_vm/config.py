@@ -61,6 +61,7 @@ class AppConfig:
     course_public_source: str
     course_student_origin: str
     rollout_prepared_images_dir: Path
+    rollout_staging_dir: Path | None
     rollout_windows_vm_directory: str
     rollout_windows_tools_dir: Path
     run: RunConfig
@@ -70,12 +71,6 @@ class AppConfig:
         if self.mode == "classroom":
             return CONFIG_DIR / "rollout.csv"
         return CONFIG_DIR / "rollout-lockdown.csv"
-
-    @property
-    def checksums_file(self) -> Path:
-        if self.mode == "classroom":
-            return REPO_ROOT / "checksums.sha256"
-        return REPO_ROOT / "checksums-lockdown.sha256"
 
     @property
     def vm_suffix(self) -> str:
@@ -154,7 +149,11 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
     provisioning = _table(data, "provisioning", {"preparation_host_key"})
     images = _table(data, "images", {"optimize_image_size"})
     courses = _table(data, "courses", {"public_source", "student_origin"})
-    rollout = _table(data, "rollout", {"prepared_images_dir", "windows_vm_directory", "windows_tools_dir"})
+    rollout = _table(
+        data,
+        "rollout",
+        {"prepared_images_dir", "staging_dir", "windows_vm_directory", "windows_tools_dir"},
+    )
     run = _table(
         data,
         "run",
@@ -191,6 +190,8 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
         raise ValueError("config.toml: [run].only_vms must be an array of non-empty strings")
     only_vms = frozenset(v.strip() for v in only_raw)
 
+    staging_raw = _optional_str(rollout, "staging_dir", "rollout")
+
     result = AppConfig(
         mode=mode,
         vm_images_dir=vm_images_dir,
@@ -208,6 +209,7 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
         rollout_prepared_images_dir=_path(
             _required_str(rollout, "prepared_images_dir", "rollout")
         ),
+        rollout_staging_dir=_path(staging_raw) if staging_raw else None,
         rollout_windows_vm_directory=_required_str(
             rollout, "windows_vm_directory", "rollout"
         ),

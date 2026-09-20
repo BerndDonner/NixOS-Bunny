@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import hashlib
 import shutil
 import subprocess
 from pathlib import Path
 
+from .artifacts import image_artifacts, verify_checksum_sidecar, write_checksum_sidecar
 from .config import AppConfig
 from .csv_model import CsvRow, read_rollout_csv, require_fields
 
@@ -68,10 +68,15 @@ def clone_images(cfg: AppConfig) -> int:
     planned: list[tuple[Path, Path, Path, Path]] = []
     for row in rows:
         require_fields(row, ["vm"], command="clone")
-        stem = f"{row.vm}{cfg.vm_suffix}"
-        dst_qcow2 = cfg.vm_images_dir / f"{stem}.qcow2"
-        dst_vars = cfg.vm_images_dir / f"{stem}.OVMF_VARS.fd"
-        planned.append((cfg.golden_image, dst_qcow2, cfg.golden_vars, dst_vars))
+        artifacts = image_artifacts(row.vm, cfg.vm_suffix)
+        planned.append(
+            (
+                cfg.golden_image,
+                artifacts.qcow2(cfg.vm_images_dir),
+                cfg.golden_vars,
+                artifacts.vars(cfg.vm_images_dir),
+            )
+        )
 
     existing = sorted(
         {str(path) for _src1, dst1, _src2, dst2 in planned for path in (dst1, dst2) if path.exists()}
@@ -108,84 +113,52 @@ def prepare_images(cfg: AppConfig) -> int:
         warn(f"No active VM rows found in {cfg.assignments_file}")
         return 0
 
-    _need_cmd("qemu-img")
-    _need_cmd("zstd")
-
     for row in rows:
         require_fields(row, ["vm"], command="prepare-images")
-        stem = f"{row.vm}{cfg.vm_suffix}"
-        qcow2 = cfg.vm_images_dir / f"{stem}.qcow2"
-        vmdk = cfg.vm_images_dir / f"{stem}.vmdk"
-        zst = cfg.vm_images_dir / f"{stem}.vmdk.zst"
+        artifacts = image_artifacts(row.vm, cfg.vm_suffix)
+        qcow2 = artifacts.qcow2(cfg.vm_images_dir)
+        vmdk = artifacts.vmdk(cfg.vm_images_dir)
+        zst = artifacts.compressed(cfg.vm_images_dir)
+        sidecar = artifacts.checksum(cfg.vm_images_dir)
 
         if cfg.run.dry_run:
-            print(f"Would convert/compress: {qcow2} -> {vmdk} -> {zst}")
+            print(f"Would ensure deployment artifact: {qcow2} -> {vmdk} -> {zst} + {sidecar.name}")
             continue
 
-        if vmdk.exists():
-            warn(f"Skipping convert: {vmdk} already exists")
-        elif not qcow2.is_file():
-            warn(f"Skipping convert: missing source {qcow2}")
-        else:
-            info(f"Converting {qcow2} -> {vmdk}")
-            subprocess.run(
-                [
-                    "qemu-img", "convert", "-p", "-f", "qcow2", "-O", "vmdk",
-                    "-o", "subformat=monolithicSparse", str(qcow2), str(vmdk),
-                ],
-                check=True,
-            )
-
         if zst.exists():
-            warn(f"Skipping zstd: {zst} already exists")
-        elif not vmdk.is_file():
-            warn(f"Skipping zstd: missing source {vmdk}")
+            warn(f"Using existing deployment image: {zst}")
         else:
+            if vmdk.exists():
+                warn(f"Skipping convert: {vmdk} already exists")
+            else:
+                if not qcow2.is_file():
+                    raise FileNotFoundError(f"Missing source QCOW2 for {row.vm}: {qcow2}")
+                _need_cmd("qemu-img")
+                info(f"Converting {qcow2} -> {vmdk}")
+                subprocess.run(
+                    [
+                        "qemu-img", "convert", "-p", "-f", "qcow2", "-O", "vmdk",
+                        "-o", "subformat=monolithicSparse", str(qcow2), str(vmdk),
+                    ],
+                    check=True,
+                )
+
+            if not vmdk.is_file():
+                raise FileNotFoundError(f"Missing VMDK for {row.vm}: {vmdk}")
+            _need_cmd("zstd")
             info(f"Compressing {vmdk} -> {zst}")
             subprocess.run(["zstd", "-T0", str(vmdk), "-o", str(zst)], check=True)
 
-    return 0
+        if not zst.is_file():
+            raise FileNotFoundError(f"Compressed image was not created for {row.vm}: {zst}")
 
+        if sidecar.is_file():
+            info(f"Verify existing checksum sidecar: {sidecar.name}")
+            sha = verify_checksum_sidecar(zst, sidecar)
+            info(f"Checksum OK: {sha}")
+        else:
+            info(f"SHA256 {zst.name}")
+            sha = write_checksum_sidecar(zst)
+            info(f"Wrote {sidecar}: {sha}")
 
-def sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(8 * 1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest().lower()
-
-
-def update_csv(cfg: AppConfig) -> int:
-    doc = read_rollout_csv(cfg.assignments_file)
-    active = doc.active_rows()
-    if not active:
-        warn(f"No active VM rows found in {cfg.assignments_file}")
-        return 0
-
-    checksum_lines: list[str] = []
-    updates: list[tuple[CsvRow, str, str]] = []
-
-    for row in active:
-        require_fields(row, ["vm"], command="update-csv")
-        stem = f"{row.vm}{cfg.vm_suffix}"
-        filename = f"{stem}.vmdk.zst"
-        zst_path = cfg.vm_images_dir / filename
-        if not zst_path.is_file():
-            raise FileNotFoundError(f"Missing compressed image for active VM {row.vm}: {zst_path}")
-        sha = sha256_file(zst_path)
-        updates.append((row, filename, sha))
-        checksum_lines.append(f"{sha}  {filename}\n")
-        info(f"{filename}: {sha}")
-
-    if cfg.run.dry_run:
-        print("Dry run: rollout CSV and checksum file were not changed.")
-        return 0
-
-    for row, filename, sha in updates:
-        row.raw["file"] = filename
-        row.raw["sha256"] = sha
-    doc.write()
-    cfg.checksums_file.write_text("".join(checksum_lines), encoding="utf-8")
-    info(f"Updated {doc.path}")
-    info(f"Wrote {cfg.checksums_file}")
     return 0

@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .config import AppConfig, REPO_ROOT
+from .artifacts import image_artifacts
 from .csv_model import CsvRow, read_rollout_csv, require_fields
 from .runtime import (
     poweroff_guest,
@@ -255,9 +256,9 @@ def _describe_row(cfg: AppConfig, row: CsvRow) -> None:
     repo = f"MCT_{course}"
     github_url = _format_url(cfg.course_public_source, repo=repo, course=course)
     forgejo_url = _format_url(cfg.course_student_origin, repo=repo, course=course)
-    stem = f"{row.vm}{cfg.vm_suffix}"
+    artifacts = image_artifacts(row.vm, cfg.vm_suffix)
     print(f"{row.vm}:")
-    print(f"  image     : {cfg.vm_images_dir / (stem + '.qcow2')}")
+    print(f"  image     : {artifacts.qcow2(cfg.vm_images_dir)}")
     print(f"  identity  : {row.raw['full_name']} <{row.raw['email']}> / {student}")
     print(f"  course    : {course} -> {repo}")
     print(f"  source    : {github_url}")
@@ -309,9 +310,9 @@ def individualize_images(cfg: AppConfig) -> int:
         github_url = _format_url(cfg.course_public_source, repo=repo, course=course)
         forgejo_url = _format_url(cfg.course_student_origin, repo=repo, course=course)
 
-        stem = f"{vm}{cfg.vm_suffix}"
-        disk = cfg.vm_images_dir / f"{stem}.qcow2"
-        vars_file = cfg.vm_images_dir / f"{stem}.OVMF_VARS.fd"
+        artifacts = image_artifacts(vm, cfg.vm_suffix)
+        disk = artifacts.qcow2(cfg.vm_images_dir)
+        vars_file = artifacts.vars(cfg.vm_images_dir)
         vm_log = run_log_dir / f"{vm}.log"
         qemu_log = run_log_dir / f"{vm}-qemu.log"
 

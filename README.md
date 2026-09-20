@@ -164,7 +164,7 @@ temporary selections and operational documentation live in
 ./scripts/mct-vm.py clone
 ./scripts/mct-vm.py individualize
 ./scripts/mct-vm.py prepare-images
-./scripts/mct-vm.py update-csv
+./scripts/mct-vm.py stage-rollout
 ./scripts/mct-vm.py rollout
 ```
 
@@ -319,14 +319,28 @@ After all individualized QCOW2 images are complete:
 
 ```bash
 ./scripts/mct-vm.py prepare-images
-./scripts/mct-vm.py update-csv
+./scripts/mct-vm.py stage-rollout
 ./scripts/mct-vm.py rollout
 ```
 
 `prepare-images` converts QCOW2 -> VMDK -> VMDK.ZST and honors
-`[run].only_vms`, so a single VM can be prepared for a pilot deployment. `update-csv` writes the
-compressed filenames and SHA256 values into the active rollout CSV and updates
-the mode-specific checksums file. `rollout` uses the values in `[rollout]` and
+`[run].only_vms`, so a single VM can be prepared for a pilot deployment. It also
+writes a `.sha256` sidecar next to every prepared `.vmdk.zst`. The rollout CSV
+is never enriched with generated filenames or hashes: the filename is derived
+centrally from the VM name and the hash is read from the sidecar.
+
+`stage-rollout` verifies all active image/sidecar pairs and copies a complete,
+self-contained rollout tree to the configured SSD staging directory. It
+intentionally ignores `[run].only_vms`, so a full rollout medium cannot
+accidentally inherit a pilot-image filter. On a Windows teacher PC the rollout
+is started directly with Python:
+
+```text
+python scripts\mct-vm.py rollout
+```
+
+No CMD wrapper is required. `rollout` verifies the local image/sidecar pairs
+before it contacts any classroom PC and then uses the values in `[rollout]` and
 the temporary controls in `[run]`.
 
 ## First-boot bootstrap of NixOS-Bunny
@@ -361,6 +375,8 @@ sudo systemctl restart mct-bootstrap-nixos-bunny.service
 - `assets/continue/config.yaml` — reviewed Continue configuration installed before the manual phase
 - `scripts/mct_vm/golden.py` — phase-2 prepare/finalize automation
 - `scripts/mct_vm/individualize.py` — phase-3 classroom individualization
+- `scripts/mct_vm/artifacts.py` — canonical VM artifact names and checksum sidecars
+- `scripts/mct_vm/stage.py` — verified self-contained rollout-SSD staging
 - `scripts/mct-vm.py` — single entry point for image preparation and rollout
 - `scripts/flake.nix` — separate development shell for the management tools
 - `scripts/config/rollout.csv` — authoritative classroom assignment/inventory input

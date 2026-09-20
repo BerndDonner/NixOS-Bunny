@@ -18,7 +18,8 @@ Before a new classroom image round:
    start page, and cleanly freezes the golden image. It deliberately does not
    verify or replace the Continue config.
 8. Run `clone`, then `individualize` (pilot with `[run].only_vms` first).
-9. Run `prepare-images`, `update-csv`, then `rollout`.
+9. Run `prepare-images`, stage the verified rollout SSD with `stage-rollout`,
+   then run `python scripts\\mct-vm.py rollout` on the Windows teacher PC.
 
 Lockdown and classroom are alternative workflow modes. Lockdown has different
 seat assignments and is intentionally not being expanded/reworked right now.
