@@ -58,7 +58,7 @@ from pathlib import Path
 from typing import Optional, Dict, List
 
 from .artifacts import image_artifacts, sha256_file, verify_checksum_sidecar
-from .config import AppConfig
+from .config import AppConfig, SCRIPTS_ROOT
 from .csv_model import CsvRow, read_rollout_csv, require_fields
 
 _HEX64_RE = re.compile(r"^[0-9A-Fa-f]{64}$")
@@ -963,7 +963,7 @@ def rollout_images(cfg: AppConfig) -> int:
     log(
         "INFO",
         f"MODE={cfg.mode} CSV={cfg.assignments_file} SRC={cfg.rollout_prepared_images_dir} "
-        f"TOOLS={cfg.rollout_windows_tools_dir}",
+        f"TOOLS={SCRIPTS_ROOT / 'tools'}",
         logfile=logfile,
     )
     log(
@@ -976,7 +976,7 @@ def rollout_images(cfg: AppConfig) -> int:
 
     csv_path = str(cfg.assignments_file)
     src_dir = str(cfg.rollout_prepared_images_dir)
-    tools_dir = str(cfg.rollout_windows_tools_dir)
+    tools_dir = str(SCRIPTS_ROOT / "tools")
 
     if not os.path.exists(csv_path):
         log("ERROR", f"CSV not found: {csv_path}", logfile=logfile)

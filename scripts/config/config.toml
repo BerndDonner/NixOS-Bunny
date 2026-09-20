@@ -97,8 +97,6 @@ staging_dir = ""
 # Target directory on the Windows classroom PCs.
 windows_vm_directory = 'C:\Virtual_Machines'
 
-# Local directory used by rollout; it must contain zstd.exe.
-windows_tools_dir = "tools"
 
 # ============================================================================
 # TEMPORARY RUN CONTROL

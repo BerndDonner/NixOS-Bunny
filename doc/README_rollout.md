@@ -32,7 +32,6 @@ Configure a dedicated directory on the mounted SSD:
 prepared_images_dir = "images"
 staging_dir = "/run/media/bernd/MCT-ROLLOUT/NixOS-Bunny"
 windows_vm_directory = 'C:\Virtual_Machines'
-windows_tools_dir = "tools"
 ```
 
 `stage-rollout` always stages **all active VMs** from the active rollout CSV;
@@ -45,8 +44,8 @@ image on the SSD again.
 ```
 
 The staged directory is self-contained for Windows rollout and includes the
-repository/tooling, `images/`, `tools/zstd.exe`, and the active rollout CSV.
-The source `tools/zstd.exe` must therefore exist before staging.
+repository/tooling, `images/`, `scripts/tools/zstd.exe`, and the active rollout CSV.
+The source `scripts/tools/zstd.exe` must therefore exist before staging.
 
 ## 3. Roll out from a Windows teacher PC
 

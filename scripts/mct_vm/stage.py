@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .artifacts import image_artifacts, verify_checksum_sidecar
-from .config import AppConfig, REPO_ROOT
+from .config import AppConfig, REPO_ROOT, SCRIPTS_ROOT
 from .csv_model import read_rollout_csv, require_fields
 
 
@@ -92,7 +92,7 @@ def stage_rollout(cfg: AppConfig) -> int:
     destination = cfg.rollout_staging_dir
     _validate_destination(destination)
 
-    zstd_source = cfg.rollout_windows_tools_dir / "zstd.exe"
+    zstd_source = SCRIPTS_ROOT / "tools" / "zstd.exe"
     if not zstd_source.is_file():
         raise FileNotFoundError(
             f"Missing Windows rollout tool: {zstd_source}. "
@@ -112,7 +112,7 @@ def stage_rollout(cfg: AppConfig) -> int:
                 f"(sha256={item.sha256})"
             )
         print(f"Would copy repository tooling to {destination}")
-        print(f"Would copy {zstd_source} to {destination / 'tools' / 'zstd.exe'}")
+        print(f"Would include {zstd_source} as {destination / 'scripts' / 'tools' / 'zstd.exe'}")
         return 0
 
     destination.mkdir(parents=True, exist_ok=True)
@@ -125,6 +125,8 @@ def stage_rollout(cfg: AppConfig) -> int:
     if staged_scripts.exists():
         shutil.rmtree(staged_scripts)
 
+    # Remove the obsolete pre-refactor root-level tools directory from an
+    # older staged medium, if present. Runtime tools now live under scripts/tools.
     staged_tools = destination / "tools"
     if staged_tools.exists():
         shutil.rmtree(staged_tools)
@@ -150,10 +152,6 @@ def stage_rollout(cfg: AppConfig) -> int:
         stale.unlink()
     for stale in image_dir.glob("bunny*.vmdk.zst.sha256"):
         stale.unlink()
-
-    tools_dir = destination / "tools"
-    tools_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(zstd_source, tools_dir / "zstd.exe")
 
     for index, item in enumerate(staged_images, start=1):
         dst_image = image_dir / item.image.name

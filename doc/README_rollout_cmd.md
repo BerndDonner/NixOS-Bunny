@@ -12,7 +12,6 @@ mode = "classroom"
 [rollout]
 prepared_images_dir = "."
 windows_vm_directory = 'C:\Virtual_Machines'
-windows_tools_dir = "tools"
 
 [run]
 only_pc = ""

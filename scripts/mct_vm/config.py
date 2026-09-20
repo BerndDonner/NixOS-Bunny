@@ -63,7 +63,6 @@ class AppConfig:
     rollout_prepared_images_dir: Path
     rollout_staging_dir: Path | None
     rollout_windows_vm_directory: str
-    rollout_windows_tools_dir: Path
     run: RunConfig
 
     @property
@@ -152,7 +151,7 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
     rollout = _table(
         data,
         "rollout",
-        {"prepared_images_dir", "staging_dir", "windows_vm_directory", "windows_tools_dir"},
+        {"prepared_images_dir", "staging_dir", "windows_vm_directory"},
     )
     run = _table(
         data,
@@ -212,9 +211,6 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
         rollout_staging_dir=_path(staging_raw) if staging_raw else None,
         rollout_windows_vm_directory=_required_str(
             rollout, "windows_vm_directory", "rollout"
-        ),
-        rollout_windows_tools_dir=_path(
-            _required_str(rollout, "windows_tools_dir", "rollout")
         ),
         run=RunConfig(
             only_vms=only_vms,
