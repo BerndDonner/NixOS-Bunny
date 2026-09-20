@@ -103,7 +103,7 @@ def stage_rollout(cfg: AppConfig) -> int:
     staged_images = _preflight_images(cfg)
     print(f"Preflight OK: {len(staged_images)} image(s)")
     print(f"Rollout staging destination: {destination}")
-    print("[run].only_vms is intentionally ignored by stage-rollout; the SSD contains all active VMs.")
+    print("[run].vms_include/vms_exclude are intentionally ignored by stage-rollout; the SSD contains all active VMs.")
 
     if cfg.run.dry_run:
         for item in staged_images:

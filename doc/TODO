@@ -17,7 +17,7 @@ Before a new classroom image round:
    manual-work traces without deleting Chrome preferences, installs the managed
    start page, and cleanly freezes the golden image. It deliberately does not
    verify or replace the Continue config.
-8. Run `clone`, then `individualize` (pilot with `[run].only_vms` first).
+8. Run `clone`, then `individualize` (pilot with `[run].vms_include` / `vms_exclude` first).
 9. Run `prepare-images`, stage the verified rollout SSD with `stage-rollout`,
    then run `python scripts\\mct-vm.py rollout` on the Windows teacher PC.
 

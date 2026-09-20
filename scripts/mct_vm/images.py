@@ -7,6 +7,7 @@ from pathlib import Path
 from .artifacts import image_artifacts, verify_checksum_sidecar, write_checksum_sidecar
 from .config import AppConfig
 from .csv_model import CsvRow, read_rollout_csv, require_fields
+from .selection import select_rows
 
 
 def warn(message: str) -> None:
@@ -34,23 +35,17 @@ def _copy_plain(src: Path, dst: Path) -> None:
 
 def _selected_rows(cfg: AppConfig) -> list[CsvRow]:
     doc = read_rollout_csv(cfg.assignments_file)
-    active = doc.active_rows()
-    if not cfg.run.only_vms:
-        return active
-    active_by_vm = {row.vm: row for row in active}
-    missing = sorted(cfg.run.only_vms - set(active_by_vm))
-    if missing:
-        raise ValueError(
-            "[run].only_vms contains VM(s) that are not active in "
-            f"{cfg.assignments_file}: {', '.join(missing)}"
-        )
-    return [row for row in active if row.vm in cfg.run.only_vms]
+    return select_rows(
+        doc.active_rows(),
+        include=cfg.run.vms_include,
+        exclude=cfg.run.vms_exclude,
+    )
 
 
 def clone_images(cfg: AppConfig) -> int:
     rows = _selected_rows(cfg)
     if not rows:
-        warn(f"No active VM rows found in {cfg.assignments_file}")
+        warn(f"No VMs selected from {cfg.assignments_file}")
         return 0
 
     if not cfg.golden_image.is_file():
@@ -110,7 +105,7 @@ def clone_images(cfg: AppConfig) -> int:
 def prepare_images(cfg: AppConfig) -> int:
     rows = _selected_rows(cfg)
     if not rows:
-        warn(f"No active VM rows found in {cfg.assignments_file}")
+        warn(f"No VMs selected from {cfg.assignments_file}")
         return 0
 
     for row in rows:

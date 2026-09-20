@@ -106,12 +106,23 @@ windows_vm_directory = 'C:\Virtual_Machines'
 # ============================================================================
 
 [run]
-# Limit `clone`, `individualize` and `prepare-images` to these VM names,
-# e.g. ["bunny06"]. Empty = all active VMs from the active rollout CSV.
-only_vms = []
+# Row selectors for `clone`, `individualize` and `prepare-images`.
+# Matching is case-insensitive against each CSV field (pcname, vm, course,
+# forgejo, full_name, email) and against the individual words in full_name.
+# `*` matches any number of characters, `?` exactly one character. Patterns
+# within one list are ORed. Excludes are applied after includes. Therefore:
+#   []       = select nothing
+#   ["*"]    = select everything
+# Examples: ["I3A"], ["feneberg"], ["bunny1?"], ["S40404-*"]
+vms_include = ["*"]
+vms_exclude = []
 
-# Limit `rollout` to this Windows PC name. Empty = all active PCs.
-only_pc = ""
+# The same selector rules, but only for the Windows `rollout` command.
+# Example: one room except one student:
+#   rollout_include = ["S40404-*"]
+#   rollout_exclude = ["feneberg"]
+rollout_include = ["*"]
+rollout_exclude = []
 
 # Show/validate the planned work without modifying images, the staging SSD or remote PCs.
 dry_run = false

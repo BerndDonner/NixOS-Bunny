@@ -35,7 +35,7 @@ windows_vm_directory = 'C:\Virtual_Machines'
 ```
 
 `stage-rollout` always stages **all active VMs** from the active rollout CSV;
-`[run].only_vms` is intentionally ignored for this command. Before copying it
+`[run].vms_include` / `vms_exclude` are intentionally ignored for this command. Before copying it
 verifies every source image against its sidecar. After copying it verifies every
 image on the SSD again.
 
@@ -61,10 +61,13 @@ Before contacting any classroom PC, rollout verifies all selected local image +
 sidecar pairs. A PC that fails the reachability check is an error, not a silent
 success.
 
-For a test run set `run.dry_run = true`. To target a single classroom PC, set
-`run.only_pc` temporarily. To ignore an existing remote marker and redeploy,
-set `run.redeploy_even_if_current = true` temporarily. Restore `[run]` to its
-normal values afterwards.
+For a test run set `run.dry_run = true`. `run.rollout_include` and
+`run.rollout_exclude` select the target rows with the same case-insensitive `*` /
+`?` glob rules used by the VM-building selectors. For example, use
+`rollout_include = ["S40404-*"]` for one room, or combine it with
+`rollout_exclude = ["feneberg"]`. To ignore an existing remote marker and
+redeploy, set `run.redeploy_even_if_current = true` temporarily. Restore `[run]`
+to its normal values afterwards.
 
 Normal rollout copies the compressed image, verifies its SHA256 on the target,
 writes the remote verification marker and unpacks remotely.

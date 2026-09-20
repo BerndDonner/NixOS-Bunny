@@ -14,8 +14,10 @@ CONFIG_PATH = CONFIG_DIR / "config.toml"
 
 @dataclass(frozen=True)
 class RunConfig:
-    only_vms: frozenset[str]
-    only_pc: str
+    vms_include: tuple[str, ...]
+    vms_exclude: tuple[str, ...]
+    rollout_include: tuple[str, ...]
+    rollout_exclude: tuple[str, ...]
     dry_run: bool
     keep_failed_vm_running: bool
     recreate_existing_images: bool
@@ -25,8 +27,10 @@ class RunConfig:
 
     def non_default_items(self) -> list[tuple[str, object]]:
         defaults = {
-            "only_vms": frozenset(),
-            "only_pc": "",
+            "vms_include": ("*",),
+            "vms_exclude": (),
+            "rollout_include": ("*",),
+            "rollout_exclude": (),
             "dry_run": False,
             "keep_failed_vm_running": False,
             "recreate_existing_images": False,
@@ -35,8 +39,10 @@ class RunConfig:
             "rollout_without_verification": False,
         }
         current = {
-            "only_vms": self.only_vms,
-            "only_pc": self.only_pc,
+            "vms_include": self.vms_include,
+            "vms_exclude": self.vms_exclude,
+            "rollout_include": self.rollout_include,
+            "rollout_exclude": self.rollout_exclude,
             "dry_run": self.dry_run,
             "keep_failed_vm_running": self.keep_failed_vm_running,
             "recreate_existing_images": self.recreate_existing_images,
@@ -119,6 +125,22 @@ def _bool(table: dict[str, Any], key: str, section: str, default: bool) -> bool:
     return value
 
 
+def _string_list(
+    table: dict[str, Any],
+    key: str,
+    section: str,
+    default: tuple[str, ...],
+) -> tuple[str, ...]:
+    value = table.get(key, list(default))
+    if not isinstance(value, list) or any(
+        not isinstance(item, str) or not item.strip() for item in value
+    ):
+        raise ValueError(
+            f"config.toml: [{section}].{key} must be an array of non-empty strings"
+        )
+    return tuple(item.strip() for item in value)
+
+
 def _path(value: str, *, base: Path = REPO_ROOT) -> Path:
     p = Path(value).expanduser()
     if not p.is_absolute():
@@ -157,8 +179,10 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
         data,
         "run",
         {
-            "only_vms",
-            "only_pc",
+            "vms_include",
+            "vms_exclude",
+            "rollout_include",
+            "rollout_exclude",
             "dry_run",
             "keep_failed_vm_running",
             "recreate_existing_images",
@@ -184,11 +208,6 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
     home_content_raw = _optional_str(golden, "student_home_content", "golden_image")
     student_home_content = _path(home_content_raw) if home_content_raw else None
 
-    only_raw = run.get("only_vms", [])
-    if not isinstance(only_raw, list) or any(not isinstance(v, str) or not v.strip() for v in only_raw):
-        raise ValueError("config.toml: [run].only_vms must be an array of non-empty strings")
-    only_vms = frozenset(v.strip() for v in only_raw)
-
     staging_raw = _optional_str(rollout, "staging_dir", "rollout")
 
     result = AppConfig(
@@ -213,8 +232,10 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
             rollout, "windows_vm_directory", "rollout"
         ),
         run=RunConfig(
-            only_vms=only_vms,
-            only_pc=_optional_str(run, "only_pc", "run"),
+            vms_include=_string_list(run, "vms_include", "run", ("*",)),
+            vms_exclude=_string_list(run, "vms_exclude", "run", ()),
+            rollout_include=_string_list(run, "rollout_include", "run", ("*",)),
+            rollout_exclude=_string_list(run, "rollout_exclude", "run", ()),
             dry_run=_bool(run, "dry_run", "run", False),
             keep_failed_vm_running=_bool(run, "keep_failed_vm_running", "run", False),
             recreate_existing_images=_bool(run, "recreate_existing_images", "run", False),
@@ -233,8 +254,8 @@ def print_run_controls(cfg: AppConfig) -> None:
         return
     print("Temporary run settings are active:")
     for key, value in changed:
-        if isinstance(value, frozenset):
-            rendered = "[" + ", ".join(sorted(value)) + "]"
+        if isinstance(value, tuple):
+            rendered = "[" + ", ".join(repr(item) for item in value) + "]"
         else:
             rendered = repr(value)
         print(f"  {key:30s} = {rendered}")

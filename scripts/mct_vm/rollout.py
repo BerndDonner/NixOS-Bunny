@@ -60,6 +60,7 @@ from typing import Optional, Dict, List
 from .artifacts import image_artifacts, sha256_file, verify_checksum_sidecar
 from .config import AppConfig, SCRIPTS_ROOT
 from .csv_model import CsvRow, read_rollout_csv, require_fields
+from .selection import select_rows
 
 _HEX64_RE = re.compile(r"^[0-9A-Fa-f]{64}$")
 
@@ -969,7 +970,9 @@ def rollout_images(cfg: AppConfig) -> int:
     log(
         "INFO",
         f"TARGET={cfg.rollout_windows_vm_directory} DRY_RUN={int(cfg.run.dry_run)} "
-        f"DEBUG={int(cfg.run.extra_diagnostics)} ONLY_PC={cfg.run.only_pc or '-'} "
+        f"DEBUG={int(cfg.run.extra_diagnostics)} "
+        f"ROLLOUT_INCLUDE={list(cfg.run.rollout_include)!r} "
+        f"ROLLOUT_EXCLUDE={list(cfg.run.rollout_exclude)!r} "
         f"EMERGENCY={int(cfg.run.rollout_without_verification)}",
         logfile=logfile,
     )
@@ -1000,39 +1003,57 @@ def rollout_images(cfg: AppConfig) -> int:
             logfile=logfile,
         )
 
-    only = cfg.run.only_pc.strip().lower()
     failures = 0
 
     try:
         doc = read_rollout_csv(cfg.assignments_file)
+        active_rows = doc.active_rows()
+        rollout_rows = select_rows(
+            active_rows,
+            include=cfg.run.rollout_include,
+            exclude=cfg.run.rollout_exclude,
+        )
+
+        log(
+            "INFO",
+            f"Rollout selection: {len(rollout_rows)} of {len(active_rows)} active row(s)",
+            logfile=logfile,
+        )
+        for row in rollout_rows:
+            log(
+                "INFO",
+                "SELECT "
+                f"pc={row.raw.get('pcname', '').strip() or '-'} "
+                f"vm={row.vm or '-'} "
+                f"course={row.raw.get('course', '').strip() or '-'} "
+                f"name={row.raw.get('full_name', '').strip() or '-'}",
+                logfile=logfile,
+            )
+
+        if not rollout_rows:
+            log(
+                "WARN",
+                "No active rollout entries matched rollout_include/rollout_exclude.",
+                logfile=logfile,
+            )
+            log("INFO", f"Logfile: {os.path.abspath(logfile)}", logfile=logfile)
+            print(f'Log: "{os.path.abspath(logfile)}"')
+            return 0
+
         selected: list[tuple[CsvRow, str, str, str]] = []
 
         # Preflight the complete selected rollout before touching any classroom
         # PC.  The CSV contains only the PC/VM mapping; image filenames and
         # checksums are derived from the canonical artifact naming rules.
-        for row in doc.active_rows():
+        for row in rollout_rows:
             require_fields(row, ["pcname", "vm"], command="rollout")
             pc = row.raw["pcname"].strip()
-            if only and pc.lower() != only:
-                continue
 
             artifacts = image_artifacts(row.vm, cfg.vm_suffix)
             local_image = artifacts.compressed(cfg.rollout_prepared_images_dir)
             local_sidecar = artifacts.checksum(cfg.rollout_prepared_images_dir)
             sha = verify_checksum_sidecar(local_image, local_sidecar)
             selected.append((row, pc, artifacts.stem, sha))
-
-        if only and not selected:
-            log("WARN", f"No active CSV entries matched only_pc={cfg.run.only_pc!r}", logfile=logfile)
-            log("INFO", f"Logfile: {os.path.abspath(logfile)}", logfile=logfile)
-            print(f'Log: "{os.path.abspath(logfile)}"')
-            return 0
-
-        if not selected:
-            log("WARN", "No active rollout entries found.", logfile=logfile)
-            log("INFO", f"Logfile: {os.path.abspath(logfile)}", logfile=logfile)
-            print(f'Log: "{os.path.abspath(logfile)}"')
-            return 0
 
         log("INFO", f"Local preflight OK: {len(selected)} image(s) + checksum sidecars verified", logfile=logfile)
 

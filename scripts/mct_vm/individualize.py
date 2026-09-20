@@ -9,6 +9,7 @@ from pathlib import Path
 from .config import AppConfig, REPO_ROOT
 from .artifacts import image_artifacts
 from .csv_model import CsvRow, read_rollout_csv, require_fields
+from .selection import select_rows
 from .runtime import (
     poweroff_guest,
     reboot_guest,
@@ -23,17 +24,11 @@ from .runtime import (
 
 def _selected_rows(cfg: AppConfig) -> list[CsvRow]:
     doc = read_rollout_csv(cfg.assignments_file)
-    active = doc.active_rows()
-    if not cfg.run.only_vms:
-        return active
-    active_by_vm = {row.vm: row for row in active}
-    missing = sorted(cfg.run.only_vms - set(active_by_vm))
-    if missing:
-        raise ValueError(
-            "[run].only_vms contains VM(s) that are not active in "
-            f"{cfg.assignments_file}: {', '.join(missing)}"
-        )
-    return [row for row in active if row.vm in cfg.run.only_vms]
+    return select_rows(
+        doc.active_rows(),
+        include=cfg.run.vms_include,
+        exclude=cfg.run.vms_exclude,
+    )
 
 
 def _format_url(template: str, *, repo: str, course: str) -> str:
@@ -275,7 +270,7 @@ def individualize_images(cfg: AppConfig) -> int:
 
     rows = _selected_rows(cfg)
     if not rows:
-        print(f"WARN: no active VM rows found in {cfg.assignments_file}")
+        print(f"WARN: no VMs selected from {cfg.assignments_file}")
         return 0
 
     for row in rows:

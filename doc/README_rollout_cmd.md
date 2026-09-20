@@ -10,11 +10,12 @@ Before a run, review especially:
 mode = "classroom"
 
 [rollout]
-prepared_images_dir = "."
+prepared_images_dir = "images"
 windows_vm_directory = 'C:\Virtual_Machines'
 
 [run]
-only_pc = ""
+rollout_include = ["*"]
+rollout_exclude = []
 dry_run = false
 redeploy_even_if_current = false
 extra_diagnostics = false
@@ -27,8 +28,10 @@ Then run:
 python scripts\mct-vm.py rollout
 ```
 
-For a test run set `run.dry_run = true`. To target a single classroom PC, set
-`run.only_pc` temporarily. To ignore an existing marker and redeploy, set
+For a test run set `run.dry_run = true`. Select targets with
+`run.rollout_include` and `run.rollout_exclude`; patterns are case-insensitive
+and support `*` and `?`. Includes are ORed and excludes are applied afterwards.
+To ignore an existing marker and redeploy, set
 `run.redeploy_even_if_current = true` temporarily. Restore the `[run]` section to
 its normal values afterwards.
 

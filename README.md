@@ -175,7 +175,12 @@ and `bunnyXX.*`; lockdown mode uses `scripts/config/rollout-lockdown.csv` and
 further until that exam workflow is reviewed again.
 
 Temporary one-run controls are grouped visibly under `[run]` in `scripts/config/config.toml`.
-Non-default temporary values are printed before an operation starts.
+Non-default temporary values are printed before an operation starts. VM-building
+commands use `vms_include` / `vms_exclude`; Windows rollout uses
+`rollout_include` / `rollout_exclude`. Both pairs use the same case-insensitive
+`*` / `?` glob rules against every CSV field and the individual words in
+`full_name`. Include patterns are ORed, then matching excludes are removed. An
+empty include list selects nothing; `["*"]` selects all active rows.
 
 **Phases 1, 2 and 3 use QCOW2 only.** VMDK conversion happens only after the
 host-specific images are finished.
@@ -275,8 +280,9 @@ active VMs. It is intentionally strict: an existing target image is an error,
 so an old VM can never be silently reused. For a deliberate replacement set
 `[run].recreate_existing_images = true` temporarily.
 
-`[run].only_vms = ["bunny06"]` can be used for a pilot clone, individualization
-and deployment-image preparation.
+For a pilot clone, individualization and deployment-image preparation, narrow
+`[run].vms_include`, for example to `["bunny06"]`, `["feneberg"]` or
+`["S40404-*"]`. `vms_exclude` removes matching rows afterwards.
 
 ### Phase 3 — individualize existing QCOW2 images
 
@@ -324,15 +330,17 @@ After all individualized QCOW2 images are complete:
 ```
 
 `prepare-images` converts QCOW2 -> VMDK -> VMDK.ZST and honors
-`[run].only_vms`, so a single VM can be prepared for a pilot deployment. It also
+`[run].vms_include` / `vms_exclude`, so a single student, VM, course or room can
+be prepared for a pilot deployment. It also
 writes a `.sha256` sidecar next to every prepared `.vmdk.zst`. The rollout CSV
 is never enriched with generated filenames or hashes: the filename is derived
 centrally from the VM name and the hash is read from the sidecar.
 
 `stage-rollout` verifies all active image/sidecar pairs and copies a complete,
 self-contained rollout tree to the configured SSD staging directory. It
-intentionally ignores `[run].only_vms`, so a full rollout medium cannot
-accidentally inherit a pilot-image filter. On a Windows teacher PC the rollout
+intentionally ignores `[run].vms_include` / `vms_exclude`, so a full rollout
+medium cannot accidentally inherit a pilot-image filter. On a Windows teacher
+PC the rollout
 is started directly with Python:
 
 ```text
