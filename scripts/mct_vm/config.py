@@ -20,7 +20,6 @@ class RunConfig:
     rollout_exclude: tuple[str, ...]
     dry_run: bool
     keep_failed_vm_running: bool
-    recreate_existing_images: bool
     redeploy_even_if_current: bool
     extra_diagnostics: bool
     rollout_without_verification: bool
@@ -33,7 +32,6 @@ class RunConfig:
             "rollout_exclude": (),
             "dry_run": False,
             "keep_failed_vm_running": False,
-            "recreate_existing_images": False,
             "redeploy_even_if_current": False,
             "extra_diagnostics": False,
             "rollout_without_verification": False,
@@ -45,7 +43,6 @@ class RunConfig:
             "rollout_exclude": self.rollout_exclude,
             "dry_run": self.dry_run,
             "keep_failed_vm_running": self.keep_failed_vm_running,
-            "recreate_existing_images": self.recreate_existing_images,
             "redeploy_even_if_current": self.redeploy_even_if_current,
             "extra_diagnostics": self.extra_diagnostics,
             "rollout_without_verification": self.rollout_without_verification,
@@ -66,6 +63,7 @@ class AppConfig:
     optimize_image_size: bool
     course_public_source: str
     course_student_origin: str
+    lockdown_repo: Path | None
     rollout_prepared_images_dir: Path
     rollout_staging_dir: Path | None
     rollout_windows_vm_directory: str
@@ -78,8 +76,41 @@ class AppConfig:
         return CONFIG_DIR / "rollout-lockdown.csv"
 
     @property
+    def host_assignments_file(self) -> Path:
+        """Authoritative identity mapping used to generate hosts/bunnyXX.nix."""
+        return CONFIG_DIR / "rollout.csv"
+
+    @property
     def vm_suffix(self) -> str:
         return "" if self.mode == "classroom" else "-lockdown"
+
+    @property
+    def golden_building_image(self) -> Path:
+        return self.golden_image.with_name(f"{self.golden_image.stem}.building.qcow2")
+
+    @property
+    def golden_finalizing_image(self) -> Path:
+        return self.golden_image.with_name(f"{self.golden_image.stem}.finalizing.qcow2")
+
+    @property
+    def golden_finalized_image(self) -> Path:
+        return self.golden_image.with_name(f"{self.golden_image.stem}.finalized.qcow2")
+
+    @staticmethod
+    def _vars_for(image: Path) -> Path:
+        return image.with_suffix(".OVMF_VARS.fd")
+
+    @property
+    def golden_building_vars(self) -> Path:
+        return self._vars_for(self.golden_building_image)
+
+    @property
+    def golden_finalizing_vars(self) -> Path:
+        return self._vars_for(self.golden_finalizing_image)
+
+    @property
+    def golden_finalized_vars(self) -> Path:
+        return self._vars_for(self.golden_finalized_image)
 
     @property
     def generated_hosts_dir(self) -> Path:
@@ -155,7 +186,7 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
     with path.open("rb") as f:
         data = tomllib.load(f)
 
-    allowed_sections = {"workflow", "paths", "golden_image", "provisioning", "images", "courses", "rollout", "run"}
+    allowed_sections = {"workflow", "paths", "golden_image", "provisioning", "images", "courses", "lockdown", "rollout", "run"}
     unknown_sections = sorted(set(data) - allowed_sections)
     if unknown_sections:
         raise ValueError(f"config.toml: unknown section(s): {', '.join(unknown_sections)}")
@@ -170,6 +201,7 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
     provisioning = _table(data, "provisioning", {"preparation_host_key"})
     images = _table(data, "images", {"optimize_image_size"})
     courses = _table(data, "courses", {"public_source", "student_origin"})
+    lockdown = _table(data, "lockdown", {"repo"})
     rollout = _table(
         data,
         "rollout",
@@ -185,7 +217,6 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
             "rollout_exclude",
             "dry_run",
             "keep_failed_vm_running",
-            "recreate_existing_images",
             "redeploy_even_if_current",
             "extra_diagnostics",
             "rollout_without_verification",
@@ -209,6 +240,7 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
     student_home_content = _path(home_content_raw) if home_content_raw else None
 
     staging_raw = _optional_str(rollout, "staging_dir", "rollout")
+    lockdown_repo_raw = _optional_str(lockdown, "repo", "lockdown")
 
     result = AppConfig(
         mode=mode,
@@ -224,6 +256,7 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
         optimize_image_size=_bool(images, "optimize_image_size", "images", True),
         course_public_source=_required_str(courses, "public_source", "courses"),
         course_student_origin=_required_str(courses, "student_origin", "courses"),
+        lockdown_repo=_path(lockdown_repo_raw) if lockdown_repo_raw else None,
         rollout_prepared_images_dir=_path(
             _required_str(rollout, "prepared_images_dir", "rollout")
         ),
@@ -238,7 +271,6 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
             rollout_exclude=_string_list(run, "rollout_exclude", "run", ()),
             dry_run=_bool(run, "dry_run", "run", False),
             keep_failed_vm_running=_bool(run, "keep_failed_vm_running", "run", False),
-            recreate_existing_images=_bool(run, "recreate_existing_images", "run", False),
             redeploy_even_if_current=_bool(run, "redeploy_even_if_current", "run", False),
             extra_diagnostics=_bool(run, "extra_diagnostics", "run", False),
             rollout_without_verification=_bool(run, "rollout_without_verification", "run", False),

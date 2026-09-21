@@ -195,7 +195,7 @@ def reboot_guest(
     """Reboot the guest and wait for a complete down/up SSH cycle.
 
     ``nixos-rebuild switch`` can write a new hostname without changing the
-    running kernel's hostname. Phase 3 therefore needs a real reboot before
+    running kernel's hostname. Per-VM provisioning therefore needs a real reboot before
     provisioning and validation continue.
     """
     subprocess.run(

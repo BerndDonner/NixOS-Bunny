@@ -1,25 +1,27 @@
 # Golden image / 2026-27
 
-Current lifecycle is config-driven through `scripts/config/config.toml` and `scripts/mct-vm.py`.
+Current lifecycle is config-driven through `scripts/config/config.toml` and
+`scripts/mct-vm.py`.
 
-Before a new classroom image round:
+Normal classroom build:
 
 1. Review `scripts/config/config.toml`, especially `[workflow]`, `[golden_image]` and `[run]`.
-2. Review/update `scripts/config/rollout.csv` and run `./scripts/mct-vm.py generate-nix` if the
-   active VM/student mapping changed.
-3. Build the generic QCOW2 (`nix build .#qcow2`) and place/name it as configured.
-4. Run `./scripts/mct-vm.py prepare-golden`.
-5. Work through `doc/golden-phase2-checklist.md`. `prepare-golden` has already
-   installed the reviewed Continue config so the real Continue connection can be
-   tested during this one manual VM session.
-6. Shut the golden VM down cleanly as the final checklist step.
-7. Run `./scripts/mct-vm.py finalize-golden`; this removes Bash/Chrome
-   manual-work traces without deleting Chrome preferences, installs the managed
-   start page, and cleanly freezes the golden image. It deliberately does not
-   verify or replace the Continue config.
-8. Run `clone`, then `individualize` (pilot with `[run].vms_include` / `vms_exclude` first).
-9. Run `prepare-images`, stage the verified rollout SSD with `stage-rollout`,
-   then run `python scripts\\mct-vm.py rollout` on the Windows teacher PC.
+2. Review/update `scripts/config/rollout.csv` and run `./scripts/mct-vm.py generate-hosts` if identities changed.
+3. Run `./scripts/mct-vm.py build-golden`.
+4. Work through `doc/golden-manual-checklist.md` in the visible VM and shut it down cleanly.
+5. Run `./scripts/mct-vm.py finalize-golden`.
+6. Run `./scripts/mct-vm.py build-vms` (pilot with `[run].vms_include` first if desired).
+7. Run `./scripts/mct-vm.py build-rollout-images`.
+8. Run `./scripts/mct-vm.py stage-rollout`, then `python scripts\\mct-vm.py rollout` on the Windows teacher PC.
 
-Lockdown and classroom are alternative workflow modes. Lockdown has different
-seat assignments and is intentionally not being expanded/reworked right now.
+Intentional rollback uses `reset-golden`, `reset-finalized-golden`, `reset-vms`
+or `reset-rollout-images`. Reset commands only remove/invalidate artifacts; they
+never run the corresponding build automatically.
+
+## Lockdown before first/second exam
+
+- `scripts/config/rollout-lockdown.csv` must be created/reviewed for the actual exam seating/selection.
+- `[lockdown].repo` must point to the exact clean local exam Git repository under ignored `repos/`.
+- Pilot-test one lockdown VM end-to-end: local Git-bundle copy, final lockdown switch, old-generation removal, bootloader update, firewall validation and cold boot.
+- **Known accepted first-exam gap:** `student` is still in `wheel` with passwordless sudo, so a knowledgeable student can run `sudo systemctl stop mct-exam-firewall`. Harden this before the second exam.
+- Submission remains deliberately undecided: support ZIP/Teams; optionally add a very simple controlled Git push workflow later.

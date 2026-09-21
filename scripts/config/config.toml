@@ -1,97 +1,85 @@
 # ============================================================================
 # MCT VM configuration
 #
-# mct-vm.py deliberately has no command-line options. All persistent settings
-# and temporary run controls live here. Commands remain explicit, for example:
+# mct-vm.py deliberately has no command-line options. Persistent settings and
+# temporary run controls live here. The normal pipeline is:
 #
 #   ./scripts/mct-vm.py config-check
-#   ./scripts/mct-vm.py generate-nix
-#   ./scripts/mct-vm.py prepare-golden
+#   ./scripts/mct-vm.py generate-hosts
+#   ./scripts/mct-vm.py build-golden
+#   # manual work in the visible golden VM; shut it down cleanly
 #   ./scripts/mct-vm.py finalize-golden
-#   ./scripts/mct-vm.py clone
-#   ./scripts/mct-vm.py individualize
-#   ./scripts/mct-vm.py prepare-images
+#   ./scripts/mct-vm.py build-vms
+#   ./scripts/mct-vm.py build-rollout-images
 #   ./scripts/mct-vm.py stage-rollout
 #   ./scripts/mct-vm.py rollout
 #
-# Relative paths are resolved from the repository root.
+# Explicit reset commands remove artifacts but NEVER rebuild them:
+#   reset-golden
+#   reset-finalized-golden
+#   reset-vms
+#   reset-rollout-images
 #
-# Provisioning transport details are intentionally not configurable here:
-# Bunny is reached as student@127.0.0.1:2222. Only the preparation-host private
-# key path is configurable; mct-vm never creates or rotates that key implicitly.
+# Relative paths are resolved from the repository root.
 # ============================================================================
 
 [workflow]
 # Exactly one image family is active at a time.
 # "classroom" uses scripts/config/rollout.csv and bunnyXX.* images.
 # "lockdown"  uses scripts/config/rollout-lockdown.csv and bunnyXX-lockdown.* images.
-# The two modes are alternatives, never parallel profiles in one run.
 mode = "classroom"
 
 [paths]
-# Directory that contains the golden QCOW2 and the per-VM QCOW2/VMDK images.
+# Directory containing golden images and all per-VM build artifacts.
 vm_images_dir = "~/VirtualMashines"
 
-# Runtime logs written by individualization, golden-image preparation and rollout.
+# Runtime logs written by VM/golden preparation and rollout.
 logs_dir = "logs"
 
 [golden_image]
-# Current golden QCOW2 used by `clone` and by the phase-2 prepare/finalize steps.
-# The matching UEFI state is derived automatically by replacing .qcow2 with
-# .OVMF_VARS.fd, e.g. golden-26.05.qcow2 -> golden-26.05.OVMF_VARS.fd.
+# Stable name of the valuable manually prepared golden image. mct-vm derives:
+#   golden-26.05.building.qcow2   - current build/manual-work image
+#   golden-26.05.finalizing.qcow2 - disposable finalization copy
+#   golden-26.05.finalized.qcow2  - immutable source for build-vms
+# and matching *.OVMF_VARS.fd files automatically.
 file = "golden-26.05.qcow2"
 
-# Optional source tree overlaid onto /home/student by `prepare-golden`.
-# Hidden files are included, unrelated guest files are preserved, symlinks and
-# empty directories are ignored. .continue/config.yaml is always excluded from
-# this overlay; prepare-golden installs the authoritative repository copy from
-# assets/continue/config.yaml immediately afterwards so it can be tested during
-# the manual phase.
-# Leave empty if there is currently nothing to overlay.
+# Optional tree overlaid onto /home/student during build-golden.
 student_home_content = "~/VirtualMashines/bunny-files-to-copy"
 
-# Page Chrome shall open in the finished golden image. This is a path inside
-# the guest, not on the preparation host. `finalize-golden` verifies that the
-# file exists and then configures a managed Chrome policy for exactly this page.
-# This intentionally happens in finalize-golden, after the manual VM has been
-# shut down and sensitive Chrome state has been cleaned. Chrome preferences,
-# bookmarks and extensions are preserved. No automatic index.html search.
+# Page Chrome opens in the finalized golden image. Installed as managed policy
+# only on the .finalizing copy, never on the protected manual golden itself.
 browser_start_page = "~/reference/www.arduino.cc/en/Reference/HomePage.html"
 
 [provisioning]
-# Private SSH key on the preparation host used for phase 2 and phase 3 setup.
-# The matching public key is versioned as assets/ssh/mct-vm-setup.pub and built
-# into Bunny by Nix. mct-vm checks that both key halves match; it never generates
-# or rotates this key automatically.
+# Private SSH key used while mct-vm builds golden/per-student images. The public
+# half is versioned as assets/ssh/mct-vm-setup.pub.
 preparation_host_key = "~/.ssh/mct-vm-setup"
 
 [images]
-# Minimize completed QCOW2 images before shutdown. The current implementation
-# asks the guest filesystem to release unused blocks (fstrim) while QEMU passes
-# discard through to the QCOW2 image.
+# Ask the guest filesystems to release unused blocks before successful shutdown.
 optimize_image_size = true
 
 [courses]
-# Public source used only to bootstrap MCT_I3A / MCT_E3A without credentials.
-# {repo} expands to MCT_<course>; {course} is also available. The GitHub remote
-# is removed again during individualization; finished VMs expose Forgejo only.
+# Classroom repository bootstrap. {repo}=MCT_<course>; {course} is also available.
 public_source = "https://github.com/BerndDonner/{repo}.git"
 
-# Forgejo remote configured as `origin`. Individualization does NOT log in or
-# push there. A student publishes the prepared local branch later with `git pub`.
+# Classroom Forgejo remote configured as origin. No credentials are used during
+# image building; student branches are first published later with git pub.
 student_origin = "https://forgejo.meisterk.de/Microcontrollertechnik/{repo}.git"
 
+[lockdown]
+# Local, independent Git repository copied into lockdown images via git bundle.
+# Keep repos/ ignored by the outer NixOS-Bunny repository. The exact exam state
+# must be committed and clean before build-vms accepts it.
+repo = "repos/MCT-Schulaufgabe1"
+
 [rollout]
-# Directory containing the finished .vmdk.zst + .sha256 pairs when `rollout`
-# is run. `stage-rollout` creates exactly this directory on the rollout SSD.
-# This path is relative to the repository / staged rollout root.
+# Directory containing finished .vmdk.zst + .sha256 pairs when rollout runs.
 prepared_images_dir = "images"
 
-# Dedicated directory on the mounted rollout SSD. Required only by
-# `stage-rollout`; leave empty until the SSD mount path is known. Point this at
-# a dedicated NixOS-Bunny rollout directory, not at the filesystem root or your
-# home directory. Example:
-#   staging_dir = "/run/media/bernd/MCT-ROLLOUT/NixOS-Bunny"
+# Dedicated directory on the mounted rollout SSD. stage-rollout replaces its
+# generated image set and copies the tooling, but excludes private repos/.
 staging_dir = "/run/media/bernd/Extreme SSD/rollout_2627_1"
 
 # Target directory on the Windows classroom PCs.
@@ -100,43 +88,24 @@ windows_vm_directory = 'C:\Virtual_Machines'
 
 # ============================================================================
 # TEMPORARY RUN CONTROL
-#
-# Check this section before a full run. The values shown below are the normal,
-# safe state. mct-vm prints any non-default temporary settings before it acts.
 # ============================================================================
 
 [run]
-# Row selectors for `clone`, `individualize` and `prepare-images`.
-# Matching is case-insensitive against each CSV field (pcname, vm, course,
-# forgejo, full_name, email) and against the individual words in full_name.
-# `*` matches any number of characters, `?` exactly one character. Patterns
-# within one list are ORed. Excludes are applied after includes. Therefore:
-#   []       = select nothing
-#   ["*"]    = select everything
-# Examples: ["I3A"], ["feneberg"], ["bunny1?"], ["S40404-*"]
+# Select rows for build-vms, build-rollout-images and the corresponding reset
+# commands. Matching is case-insensitive against CSV fields and full-name words.
 vms_include = ["*"]
 vms_exclude = []
 
-# The same selector rules, but only for the Windows `rollout` command.
-# Example: one room except one student:
-#   rollout_include = ["S40404-*"]
-#   rollout_exclude = ["feneberg"]
+# Separate selectors used only by Windows rollout.
 rollout_include = ["*"]
 rollout_exclude = []
 
-# Show/validate the planned work without modifying images, the staging SSD or remote PCs.
+# Show/validate planned work without modifying images, SSD staging or PCs.
 dry_run = false
 
-# If prepare-golden, finalize-golden or individualize fails, leave its QEMU VM
-# running for manual diagnosis instead of stopping it automatically. Note that
-# a normal finalize-golden run requires the visible/manual prepare-golden VM to
-# have been shut down cleanly first.
+# If build-golden, finalize-golden or build-vms fails, leave QEMU running for
+# diagnosis instead of stopping it automatically.
 keep_failed_vm_running = false
-
-# Allow `clone` to replace already existing bunnyXX image + UEFI-state files.
-# false is intentionally strict: existing targets cause an error instead of
-# silently reusing an old VM.
-recreate_existing_images = false
 
 # Force rollout even when the target marker says the compressed image is current.
 redeploy_even_if_current = false
@@ -144,6 +113,6 @@ redeploy_even_if_current = false
 # Produce additional diagnostic logging during rollout.
 extra_diagnostics = false
 
-# Emergency rollout: prioritize getting a startable VMDK onto the target and do
-# not claim normal remote verification. A manifest is written for traceability.
+# Emergency rollout: prioritize a startable VMDK and do not claim normal remote
+# verification. A manifest is written for traceability.
 rollout_without_verification = false

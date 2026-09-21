@@ -3,25 +3,33 @@
 The integrated rollout is driven by `scripts/config/config.toml`; there are no
 rollout command-line options.
 
-## 1. Prepare deployment artifacts on NixOS
+## 1. Build deployment artifacts on NixOS
 
-After individualization, create the compressed VMware images and their checksum
-sidecars:
+After `build-vms` has produced finished QCOW2/UEFI pairs, create the compressed
+VMware images and checksum sidecars:
 
 ```text
-./scripts/mct-vm.py prepare-images
+./scripts/mct-vm.py build-rollout-images
 ```
 
-For every active VM this produces a pair next to the prepared image source:
+For every selected active VM this produces the committed pair:
 
 ```text
 bunny12.vmdk.zst
 bunny12.vmdk.zst.sha256
 ```
 
-The rollout CSV is deliberately **not modified**. It remains the authoritative
-PC/VM/student mapping only. Filenames are derived from the VM name by the common
-artifact-naming code; the expected SHA256 comes from the sidecar.
+The conversion uses temporary `.building.vmdk` / `.building.vmdk.zst` files.
+The final image plus a valid sidecar is the success state; a later normal run
+skips it. To deliberately regenerate these artifacts use:
+
+```text
+./scripts/mct-vm.py reset-rollout-images
+./scripts/mct-vm.py build-rollout-images
+```
+
+The rollout CSV is deliberately not modified. Filenames are derived from the
+VM name and the expected SHA256 comes from the sidecar.
 
 ## 2. Stage the rollout SSD
 
@@ -35,39 +43,32 @@ windows_vm_directory = 'C:\Virtual_Machines'
 ```
 
 `stage-rollout` always stages **all active VMs** from the active rollout CSV;
-`[run].vms_include` / `vms_exclude` are intentionally ignored for this command. Before copying it
-verifies every source image against its sidecar. After copying it verifies every
-image on the SSD again.
+`[run].vms_include` / `vms_exclude` are intentionally ignored. It verifies the
+source pairs, rebuilds the staged image set, and verifies the copied pairs again.
 
 ```text
 ./scripts/mct-vm.py stage-rollout
 ```
 
 The staged directory is self-contained for Windows rollout and includes the
-repository/tooling, `images/`, `scripts/tools/zstd.exe`, and the active rollout CSV.
-The source `scripts/tools/zstd.exe` must therefore exist before staging.
+repository/tooling, `images/`, `scripts/tools/zstd.exe`, and the active rollout
+CSV. Private/local repositories under `repos/` are explicitly excluded.
 
 ## 3. Roll out from a Windows teacher PC
 
-Requirements are Python 3.11+ and the standard Windows tools used by the
-rollout (`robocopy`, `schtasks`, PowerShell/certutil, administrative shares).
-Run Python directly from the SSD; no CMD wrapper is used:
+Requirements are Python 3.11+ and the standard Windows tools used by rollout
+(`robocopy`, `schtasks`, PowerShell/certutil, administrative shares):
 
 ```text
 python scripts\mct-vm.py rollout
 ```
 
 Before contacting any classroom PC, rollout verifies all selected local image +
-sidecar pairs. A PC that fails the reachability check is an error, not a silent
-success.
+sidecar pairs. A PC that fails the reachability check is an error.
 
 For a test run set `run.dry_run = true`. `run.rollout_include` and
-`run.rollout_exclude` select the target rows with the same case-insensitive `*` /
-`?` glob rules used by the VM-building selectors. For example, use
-`rollout_include = ["S40404-*"]` for one room, or combine it with
-`rollout_exclude = ["feneberg"]`. To ignore an existing remote marker and
-redeploy, set `run.redeploy_even_if_current = true` temporarily. Restore `[run]`
-to its normal values afterwards.
+`run.rollout_exclude` select target rows. To ignore an existing remote SHA
+marker and redeploy, set `run.redeploy_even_if_current = true` temporarily.
 
 Normal rollout copies the compressed image, verifies its SHA256 on the target,
 writes the remote verification marker and unpacks remotely.

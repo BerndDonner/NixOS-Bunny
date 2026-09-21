@@ -41,7 +41,7 @@ The generic golden host `bunny` deliberately uses `mct.course = UNCONFIGURED`.
 The golden/teacher configuration `bunny` uses `mct.student = donner`.
 
 `hosts/bunnyXX.nix` is generated data.  Before building the golden image,
-regenerate it from the current `scripts/config/rollout.csv`.  The generator removes stale
+regenerate it from the current `scripts/config/rollout.csv` with `generate-hosts`.  The generator removes stale
 `bunnyXX.nix` files automatically, and `flake.nix` discovers the remaining host
 files dynamically.  There is therefore only one active-VM list to maintain: the
 CSV.
@@ -140,216 +140,240 @@ and the actual daemon will normally exist only while a connection is active.
 
 ## Configuration and image lifecycle
 
-The VM build and the management-tool environment are deliberately separate flakes:
+The VM build and management-tool environment are separate flakes:
 
 ```bash
-nix build .#qcow2        # repository-root flake: Bunny image
-nix develop ./scripts    # scripts/flake.nix: management environment
+nix develop ./scripts
 ```
 
-The management shell supplies Python and the generic command-line dependencies.
-QEMU itself intentionally comes from the host so the shell does not shadow a
-deliberately selected host QEMU version. The first `nix develop ./scripts` will
-create `scripts/flake.lock`; commit that lock file to pin the tool environment.
+The management shell supplies Python and generic command-line dependencies. QEMU
+and `qemu-img` intentionally come from the host so the shell does not shadow a
+deliberately selected host QEMU version.
 
-`mct-vm.py` has deliberately no command-line options. All persistent settings,
+`mct-vm.py` has deliberately no command-line options. Persistent settings,
 temporary selections and operational documentation live in
-`scripts/config/config.toml`. The command line only chooses the operation:
+`scripts/config/config.toml`. The command line only chooses an explicit stage:
 
 ```bash
 ./scripts/mct-vm.py config-check
-./scripts/mct-vm.py generate-nix
-./scripts/mct-vm.py prepare-golden
+./scripts/mct-vm.py generate-hosts
+./scripts/mct-vm.py build-golden
+# manual work in the visible golden VM, then clean shutdown
 ./scripts/mct-vm.py finalize-golden
-./scripts/mct-vm.py clone
-./scripts/mct-vm.py individualize
-./scripts/mct-vm.py prepare-images
+./scripts/mct-vm.py build-vms
+./scripts/mct-vm.py build-rollout-images
 ./scripts/mct-vm.py stage-rollout
 ./scripts/mct-vm.py rollout
 ```
 
-`[workflow].mode` selects exactly one image family: `classroom` or `lockdown`.
-They are alternatives, not parallel profiles. Classroom mode uses `scripts/config/rollout.csv`
-and `bunnyXX.*`; lockdown mode uses `scripts/config/rollout-lockdown.csv` and
-`bunnyXX-lockdown.*`. Lockdown individualization is intentionally not expanded
-further until that exam workflow is reviewed again.
-
-Temporary one-run controls are grouped visibly under `[run]` in `scripts/config/config.toml`.
-Non-default temporary values are printed before an operation starts. VM-building
-commands use `vms_include` / `vms_exclude`; Windows rollout uses
-`rollout_include` / `rollout_exclude`. Both pairs use the same case-insensitive
-`*` / `?` glob rules against every CSV field and the individual words in
-`full_name`. Include patterns are ORed, then matching excludes are removed. An
-empty include list selects nothing; `["*"]` selects all active rows.
-
-**Phases 1, 2 and 3 use QCOW2 only.** VMDK conversion happens only after the
-host-specific images are finished.
-
-### Phase 1 — build the generic QCOW2
+Intentional rollback is explicit and destructive only for derived artifacts:
 
 ```bash
-nix build .#qcow2
+./scripts/mct-vm.py reset-golden
+./scripts/mct-vm.py reset-finalized-golden
+./scripts/mct-vm.py reset-vms
+./scripts/mct-vm.py reset-rollout-images
 ```
 
-Name/copy the image as the active `[golden_image].file` from `scripts/config/config.toml`.
-The UEFI state filename is derived automatically by replacing `.qcow2` with
-`.OVMF_VARS.fd`.
+A `reset-*` command **never rebuilds anything**. It only removes the requested
+result and everything locally derived from it. Rebuilding is always done with
+the normal commands above. `reset-golden` is the only reset that creates a
+backup first, because the manual golden contains work that is not reproducible.
 
-### Phase 2a — prepare the golden image
+`[workflow].mode` selects one output family. Classroom uses
+`scripts/config/rollout.csv` and `bunnyXX.*`; lockdown uses
+`scripts/config/rollout-lockdown.csv` and `bunnyXX-lockdown.*`. The lockdown CSV
+is a deployment/exam selection and must be created/reviewed for the actual exam.
+It is **not** used to generate `hosts/bunnyXX.nix`.
+
+Temporary run controls remain under `[run]`. `vms_include` / `vms_exclude`
+select rows for `build-vms`, `build-rollout-images` and their selected reset
+commands; `rollout_include` / `rollout_exclude` affect Windows rollout only.
+Patterns are case-insensitive `*`/`?` globs over CSV fields and full-name words.
+
+### Artifact names are the build state
+
+There is no second `.state` database. Final artifact names are success markers;
+work-in-progress files use an explicit temporary infix:
+
+```text
+golden-26.05.building.qcow2    automatic preparation + manual GUI work
+golden-26.05.qcow2             protected, powered-off manual golden
+golden-26.05.finalizing.qcow2  disposable finalization copy
+golden-26.05.finalized.qcow2   source accepted by build-vms
+
+bunny00.building.qcow2         interrupted/in-progress VM build
+bunny00.qcow2                  successfully built classroom VM
+bunny00-lockdown.qcow2         successfully built lockdown VM
+
+bunny00.building.vmdk.zst      in-progress rollout image
+bunny00.vmdk.zst + .sha256     committed rollout artifact
+```
+
+A normal build command skips an already complete final output. To deliberately
+start that stage again, run the corresponding `reset-*` command first. Stale
+`.building`/`.finalizing` artifacts are disposable and are recreated from their
+protected source.
+
+### Host identity generation
+
+`hosts/bunnyXX.nix` is generated **only** from the classroom identity mapping
+`scripts/config/rollout.csv`:
 
 ```bash
-./scripts/mct-vm.py prepare-golden
+./scripts/mct-vm.py generate-hosts
 ```
 
-This starts the configured golden image **visibly**, with the fixed provisioning
-SSH transport `student@127.0.0.1:2222`. The transport itself is fixed, while
-the preparation-host private key is selected by
-`[provisioning].preparation_host_key`. Its public half is
-`assets/ssh/mct-vm-setup.pub` and is built into Bunny by Nix.
+This is independent of `[workflow].mode`. A lockdown CSV selects which existing
+student identities receive exam images; it must not replace or delete the
+classroom host definitions.
 
-`prepare-golden` performs the work that is safe before manual GUI setup:
+### Build and manually prepare the golden image
 
-- optionally overlays `[golden_image].student_home_content` onto
-  `/home/student`;
-- includes hidden regular files, preserves unrelated guest files, and ignores
-  symlinks/empty directories;
-- deliberately ignores any `.continue/config.yaml` from the home overlay, then
-  installs and verifies the authoritative repository copy from
-  `assets/continue/config.yaml`;
-- deliberately does **not** set the final Chrome start page yet;
-- leaves the VM running for manual work.
+```bash
+./scripts/mct-vm.py build-golden
+```
 
-The old `scripts/copy-home-tree.sh` has been absorbed into this command.
+`build-golden` now owns the former external `nix build .#qcow2` step as well as
+the former `prepare-golden` automation. It:
 
-Now perform the deliberate manual golden-image work. The concrete checklist is
-kept in `doc/golden-phase2-checklist.md`. Continue already has its reviewed
-configuration in place before the extension is installed, so the real server
-connection can be tested during this single manual VM session.
+1. runs `nix build .#qcow2 --no-link --print-out-paths`;
+2. copies the single QCOW2 build result to
+   `golden-*.building.qcow2` using reflink/sparse copying where supported;
+3. starts that image visibly with provisioning SSH;
+4. overlays optional student-home content;
+5. installs and verifies `assets/continue/config.yaml`;
+6. leaves the VM running for the deliberate manual setup.
 
-When the manual work is complete, **shut the VM down cleanly** before running
-`finalize-golden`. Do not manually delete the whole Chrome profile: finalization
-removes Bash history plus sensitive Chrome state (saved passwords, cookies/login
-sessions, browsing/session/site data and caches) while preserving Chrome
-preferences, bookmarks and extensions.
+Perform the checklist in `doc/golden-manual-checklist.md`, then shut the visible
+VM down cleanly. The `.building` file contains the manual work until
+`finalize-golden` promotes it to the protected stable name.
 
-### Phase 2b — finalize the golden image
+### Finalize without touching the manual golden
 
 ```bash
 ./scripts/mct-vm.py finalize-golden
 ```
 
-The visible/manual VM **must already be shut down cleanly**. If the
-`prepare-golden` QEMU process is still running, `finalize-golden` refuses to
-continue. It then boots the configured golden image headless for a deterministic
-cleanup pass.
+If no stable manual golden exists yet, a powered-off
+`golden-*.building.qcow2` is renamed to the stable `golden-*.qcow2` pair. From
+that point on the manual golden is protected: finalization always **copies**,
+never renames or modifies, the stable manual QCOW2/UEFI pair:
 
-Finalization:
-
-1. removes Bash command history and sensitive Chrome state from the manual
-   phase, including saved passwords, cookies/login sessions, history, open-tab
-   sessions, site storage and caches, while preserving Chrome preferences,
-   bookmarks and extensions;
-2. verifies `[golden_image].browser_start_page` and installs the final managed
-   Chrome start-page policy;
-3. optionally optimizes image size (`[images].optimize_image_size`; currently
-   implemented with guest `fstrim` plus QEMU discard);
-4. shuts the VM down cleanly.
-
-`finalize-golden` deliberately does **not** verify or replace the Continue
-configuration. Continue is tested as part of the manual phase-2 checklist.
-
-### Host generation
-
-`hosts/bunnyXX.nix` is generated from the **active mode's** rollout CSV:
-
-```bash
-./scripts/mct-vm.py generate-nix
+```text
+golden-26.05.qcow2
+        | COPY
+        v
+golden-26.05.finalizing.qcow2
+        | cleanup + Chrome policy + fstrim + clean shutdown
+        v
+golden-26.05.finalized.qcow2
 ```
 
-The host files are reviewed configuration. `individualize` never regenerates
-them implicitly.
+A failed `.finalizing` copy is disposable; a retry starts again from the
+protected manual golden. A successful existing `.finalized` pair is skipped.
+Use `reset-finalized-golden` to remove it deliberately while preserving the
+manual source.
 
-### Clone host-specific images
+### Build per-student VMs
 
 ```bash
-./scripts/mct-vm.py clone
+./scripts/mct-vm.py build-vms
 ```
 
-`clone` copies the configured golden QCOW2 and its matching UEFI state to the
-active VMs. It is intentionally strict: an existing target image is an error,
-so an old VM can never be silently reused. For a deliberate replacement set
-`[run].recreate_existing_images = true` temporarily.
+This replaces the old public `clone` + `individualize` split. For every selected
+VM without a final QCOW2/UEFI pair it copies the finalized golden to a
+`.building` pair, provisions and validates it, shuts it down, and only then
+renames the pair to the final `bunnyXX*` names. A final pair therefore means the
+whole VM build succeeded. A stale `.building` pair from an interrupted run is
+recreated from the finalized golden.
 
-For a pilot clone, individualization and deployment-image preparation, narrow
-`[run].vms_include`, for example to `["bunny06"]`, `["feneberg"]` or
-`["S40404-*"]`. `vms_exclude` removes matching rows afterwards.
+For classroom mode, `build-vms` keeps the previous course workflow: host-specific
+Nix configuration, reboot, public GitHub bootstrap, Forgejo as the only final
+remote, student branch/setup hooks/VS Code protection, validation and shutdown.
 
-### Phase 3 — individualize existing QCOW2 images
+For lockdown mode, `scripts/config/rollout-lockdown.csv` selects the VMs while
+`hosts/bunnyXX.nix` still comes from the classroom identity mapping. The exam
+repository is configured with:
 
-```bash
-./scripts/mct-vm.py individualize
+```toml
+[lockdown]
+repo = "repos/MCT-Schulaufgabe1"
 ```
 
-This command does **not** know or need the golden image. It works only on the
-already cloned `bunnyXX.qcow2` images. For each selected classroom VM it:
+`repos/` is ignored by the outer repository and excluded from rollout staging.
+The configured exam repo must itself be a clean Git repository with a named
+current branch. `build-vms` creates a Git bundle locally and copies that bundle
+into each exam VM; no public Git server and no Forgejo credentials are needed.
+The finished exam repository intentionally has no remote, so later submission
+can remain either ZIP/Teams or gain a separate simple push workflow.
 
-1. boots the existing QCOW2 headless and waits for provisioning SSH;
-2. copies the already reviewed `hosts/bunnyXX.nix` into the guest checkout;
-3. runs `nixos-rebuild switch --flake ...#bunnyXX`;
-4. reboots the guest into that individualized generation and verifies that the
-   running hostname is now `bunnyXX`;
-5. clones the public GitHub course mirror as a temporary bootstrap source,
-   without student credentials;
-6. configures Forgejo as the only final remote (`origin`) without contacting or
-   logging into Forgejo, then removes the temporary GitHub remote and any GitHub
-   tracking metadata; this applies to student **and** teacher VMs;
-7. creates/selects the student's local branch (teacher remains on `master`);
-8. runs the course repository `_config/setup.sh` for hooks and VS Code read-only
-   protection;
-9. validates hostname, Git/MCT identity, repository/branch state and the presence
-   of the Continue config;
-10. optionally optimizes image size;
-11. shuts down cleanly.
+Lockdown provisioning first boots the ordinary host-specific generation so
+identity and unrestricted provisioning work normally. The exam repository is
+installed before the firewall is activated. The **last SSH session** switches to
+`bunnyXX-lockdown`, removes older NixOS system generations, rewrites the boot
+configuration, validates that exactly one system generation remains and that
+`mct-exam-firewall` is enabled/active, then powers the VM off. This prevents a
+student from selecting an older non-lockdown generation from the bootloader.
 
-There is deliberately **no VS Code autostart or first-launch manipulation**.
-Students start VS Code themselves in class. Student branches deliberately have
-no upstream; the first Forgejo contact remains the student's own:
+The known first-exam limitation remains deliberate: `student` still has
+passwordless wheel access and could stop `mct-exam-firewall`. This is documented
+in `doc/TODO` for hardening before the second exam.
+
+### Build rollout images
 
 ```bash
-git pub
+./scripts/mct-vm.py build-rollout-images
 ```
 
-### Prepare deployment images and rollout
+For each selected finished QCOW2 this creates a temporary VMDK, compresses it to
+`.building.vmdk.zst`, then publishes the final `.vmdk.zst` and atomically writes
+its `.sha256` sidecar. The image + valid sidecar pair is the success marker and
+is skipped on later runs. A lone final ZST without a sidecar is treated as an
+interrupted build and rebuilt; a final pair with a checksum mismatch is an
+error.
 
-After all individualized QCOW2 images are complete:
+The temporary VMDK is removed after successful compression. Old legacy `.vmdk`
+files are removed by `reset-rollout-images` but are never trusted as build state.
+
+### Reset semantics
+
+- `reset-rollout-images`: selected VMs only; removes VMDK/ZST/SHA and temporary
+  rollout files. Finished QCOW2/UEFI images remain.
+- `reset-vms`: selected VMs only; removes their final/in-progress VM images and
+  rollout artifacts. The finalized golden remains.
+- `reset-finalized-golden`: keeps the protected manual golden, removes
+  `.finalizing`/`.finalized` and all locally derived classroom/lockdown VM and
+  rollout artifacts.
+- `reset-golden`: backs up any stable/in-progress manual golden under
+  `VM_DIR/backups/golden/<timestamp>/`, removes finalized and all downstream
+  local artifacts, and leaves rebuilding to a later `build-golden` command.
+
+Reset commands do not delete already staged SSD contents or touch remote school
+PCs. After rebuilding upstream artifacts, run `stage-rollout` and `rollout`
+again as appropriate.
+
+### Stage and deploy
 
 ```bash
-./scripts/mct-vm.py prepare-images
 ./scripts/mct-vm.py stage-rollout
 ./scripts/mct-vm.py rollout
 ```
 
-`prepare-images` converts QCOW2 -> VMDK -> VMDK.ZST and honors
-`[run].vms_include` / `vms_exclude`, so a single student, VM, course or room can
-be prepared for a pilot deployment. It also
-writes a `.sha256` sidecar next to every prepared `.vmdk.zst`. The rollout CSV
-is never enriched with generated filenames or hashes: the filename is derived
-centrally from the VM name and the hash is read from the sidecar.
+`stage-rollout` verifies every active image/sidecar pair and rebuilds the staged
+image set on the configured SSD. It deliberately ignores `vms_include` /
+`vms_exclude` so a pilot filter cannot silently produce an incomplete rollout
+medium. Private `repos/` content is explicitly excluded from the staged tree.
 
-`stage-rollout` verifies all active image/sidecar pairs and copies a complete,
-self-contained rollout tree to the configured SSD staging directory. It
-intentionally ignores `[run].vms_include` / `vms_exclude`, so a full rollout
-medium cannot accidentally inherit a pilot-image filter. On a Windows teacher
-PC the rollout
-is started directly with Python:
+On the Windows teacher PC:
 
 ```text
 python scripts\mct-vm.py rollout
 ```
 
-No CMD wrapper is required. `rollout` verifies the local image/sidecar pairs
-before it contacts any classroom PC and then uses the values in `[rollout]` and
-the temporary controls in `[run]`.
+`rollout` retains its existing SHA-marker logic. `redeploy_even_if_current`
+remains a rollout-only control; the old persistent `recreate_existing_images`
+option has been removed.
 
 ## First-boot bootstrap of NixOS-Bunny
 
@@ -381,9 +405,10 @@ sudo systemctl restart mct-bootstrap-nixos-bunny.service
 - `modules/home/modules/git.nix` — global Git defaults and recovery aliases
 - `hosts/*.nix` — host-specific Git identity/course data
 - `assets/continue/config.yaml` — reviewed Continue configuration installed before the manual phase
-- `scripts/mct_vm/golden.py` — phase-2 prepare/finalize automation
-- `scripts/mct_vm/individualize.py` — phase-3 classroom individualization
-- `scripts/mct_vm/artifacts.py` — canonical VM artifact names and checksum sidecars
+- `scripts/mct_vm/golden.py` — golden build/finalization and protected-copy lifecycle
+- `scripts/mct_vm/vm_build.py` — atomic per-VM classroom/lockdown builds
+- `scripts/mct_vm/artifacts.py` — final/temporary VM artifact names and checksum sidecars
+- `scripts/mct_vm/reset.py` — explicit artifact rollback without automatic rebuilding
 - `scripts/mct_vm/stage.py` — verified self-contained rollout-SSD staging
 - `scripts/mct-vm.py` — single entry point for image preparation and rollout
 - `scripts/flake.nix` — separate development shell for the management tools

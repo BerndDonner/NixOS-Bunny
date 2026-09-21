@@ -11,10 +11,12 @@ _HEX64_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 
 @dataclass(frozen=True)
 class ImageArtifacts:
-    """Canonical names for every file belonging to one Bunny VM image.
+    """Canonical names for all files belonging to one finished Bunny VM.
 
-    All lifecycle stages use this class so image naming cannot drift between
-    clone, individualization, image preparation, SSD staging and rollout.
+    Final filenames are success markers. Work-in-progress files use the
+    ``.building`` infix and may be discarded automatically after an interrupted
+    build. This keeps state coupled to the artifact instead of maintaining a
+    second marker database.
     """
 
     vm: str
@@ -33,12 +35,30 @@ class ImageArtifacts:
         return f"{self.stem}.OVMF_VARS.fd"
 
     @property
+    def building_qcow2_name(self) -> str:
+        return f"{self.stem}.building.qcow2"
+
+    @property
+    def building_vars_name(self) -> str:
+        return f"{self.stem}.building.OVMF_VARS.fd"
+
+    @property
     def vmdk_name(self) -> str:
+        # Legacy/intermediate name. New builds use building_vmdk_name and remove
+        # the VMDK after successful compression.
         return f"{self.stem}.vmdk"
 
     @property
+    def building_vmdk_name(self) -> str:
+        return f"{self.stem}.building.vmdk"
+
+    @property
     def compressed_name(self) -> str:
-        return f"{self.vmdk_name}.zst"
+        return f"{self.stem}.vmdk.zst"
+
+    @property
+    def building_compressed_name(self) -> str:
+        return f"{self.stem}.building.vmdk.zst"
 
     @property
     def checksum_name(self) -> str:
@@ -50,14 +70,43 @@ class ImageArtifacts:
     def vars(self, base: Path) -> Path:
         return base / self.vars_name
 
+    def building_qcow2(self, base: Path) -> Path:
+        return base / self.building_qcow2_name
+
+    def building_vars(self, base: Path) -> Path:
+        return base / self.building_vars_name
+
     def vmdk(self, base: Path) -> Path:
         return base / self.vmdk_name
+
+    def building_vmdk(self, base: Path) -> Path:
+        return base / self.building_vmdk_name
 
     def compressed(self, base: Path) -> Path:
         return base / self.compressed_name
 
+    def building_compressed(self, base: Path) -> Path:
+        return base / self.building_compressed_name
+
     def checksum(self, base: Path) -> Path:
         return base / self.checksum_name
+
+    def vm_paths(self, base: Path) -> tuple[Path, ...]:
+        return (
+            self.qcow2(base),
+            self.vars(base),
+            self.building_qcow2(base),
+            self.building_vars(base),
+        )
+
+    def rollout_paths(self, base: Path) -> tuple[Path, ...]:
+        return (
+            self.vmdk(base),
+            self.building_vmdk(base),
+            self.compressed(base),
+            self.building_compressed(base),
+            self.checksum(base),
+        )
 
 
 def image_artifacts(vm: str, suffix: str = "") -> ImageArtifacts:

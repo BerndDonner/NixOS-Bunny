@@ -56,7 +56,7 @@
                 # forgejo is the technical course identity used by every MCT course repository:
                 # mct.student == Forgejo login == student branch == student folder.
                 # Old host files without forgejo stay buildable but fail closed
-                # in the course hooks until regenerate-nix is run.
+                # in the course hooks until generate-hosts is run.
                 settings.mct.student = if h ? forgejo then h.forgejo else "UNCONFIGURED";
                 settings.mct.course = if h ? course then h.course else "UNCONFIGURED";
               };
@@ -98,7 +98,7 @@
       in
         perHost // {
           # Golden image shortcut (bunny). QCOW2 is the canonical build artifact;
-          # deployment formats such as VMDK are exported only after phase 3.
+          # deployment formats such as VMDK are exported only after build-vms.
           qcow2 = bunnySystem.config.system.build.images."qemu-efi";
           default = bunnySystem.config.system.build.images."qemu-efi";
 

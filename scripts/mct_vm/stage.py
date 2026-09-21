@@ -45,7 +45,7 @@ def _validate_destination(destination: Path) -> None:
 
 def _repo_ignore(_directory: str, names: list[str]) -> set[str]:
     ignored: set[str] = set()
-    always = {".git", "logs", ".mct-vm", "result", "__pycache__", "images"}
+    always = {".git", "logs", ".mct-vm", "result", "__pycache__", "images", "repos"}
     for name in names:
         if name in always or name.endswith(".pyc"):
             ignored.add(name)

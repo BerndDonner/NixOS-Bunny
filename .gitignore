@@ -7,3 +7,6 @@ __pycache__/
 *.pyc
 logs/
 .mct-vm/
+
+# Private/local course and exam repositories (independent Git repos)
+/repos/

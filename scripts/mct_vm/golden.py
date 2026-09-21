@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shlex
+import shutil
 import stat
 import subprocess
 import sys
@@ -25,21 +26,55 @@ SESSION_DIR = REPO_ROOT / ".mct-vm"
 SESSION_FILE = SESSION_DIR / "golden-session.json"
 
 
-def _session_payload(cfg: AppConfig, pid: int) -> dict[str, object]:
+def _copy_qcow2(src: Path, dst: Path) -> None:
+    subprocess.run(
+        ["cp", "--reflink=auto", "--sparse=always", str(src), str(dst)],
+        check=True,
+    )
+
+
+def _copy_plain(src: Path, dst: Path) -> None:
+    subprocess.run(["cp", "--reflink=auto", str(src), str(dst)], check=True)
+
+
+def _pair_state(image: Path, vars_file: Path) -> str:
+    have_image = image.is_file()
+    have_vars = vars_file.is_file()
+    if have_image and have_vars:
+        return "complete"
+    if not have_image and not have_vars:
+        return "missing"
+    return "partial"
+
+
+def _require_no_partial_pair(image: Path, vars_file: Path, *, label: str) -> str:
+    state = _pair_state(image, vars_file)
+    if state == "partial":
+        raise RuntimeError(
+            f"Inconsistent {label}: expected image and UEFI state together:\n"
+            f"  {image}\n  {vars_file}"
+        )
+    return state
+
+
+def _session_payload(*, image: Path, vars_file: Path, pid: int) -> dict[str, object]:
     return {
         "pid": pid,
-        "image": str(cfg.golden_image),
-        "vars": str(cfg.golden_vars),
+        "image": str(image),
+        "vars": str(vars_file),
         "started_at": datetime.now().isoformat(timespec="seconds"),
     }
 
 
-def _write_session(cfg: AppConfig, pid: int) -> None:
+def _write_session(*, image: Path, vars_file: Path, pid: int) -> None:
     SESSION_DIR.mkdir(parents=True, exist_ok=True)
-    SESSION_FILE.write_text(json.dumps(_session_payload(cfg, pid), indent=2) + "\n", encoding="utf-8")
+    SESSION_FILE.write_text(
+        json.dumps(_session_payload(image=image, vars_file=vars_file, pid=pid), indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 
-def _read_session(cfg: AppConfig) -> int | None:
+def _read_live_session() -> tuple[int, Path, Path] | None:
     if not SESSION_FILE.is_file():
         return None
     try:
@@ -49,33 +84,30 @@ def _read_session(cfg: AppConfig) -> int | None:
         vars_file = Path(str(payload["vars"])).resolve()
     except Exception:
         return None
-    if image != cfg.golden_image.resolve() or vars_file != cfg.golden_vars.resolve():
-        return None
     if not pid_alive(pid):
         return None
-    # Avoid trusting a stale PID that has been reused by another process.
     try:
         cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode(errors="replace")
     except OSError:
         return None
-    if "qemu-system" not in cmdline or str(cfg.golden_image) not in cmdline:
+    if "qemu-system" not in cmdline or str(image) not in cmdline:
         return None
-    return pid
+    return pid, image, vars_file
 
 
 def _clear_session() -> None:
-    try:
-        SESSION_FILE.unlink()
-    except FileNotFoundError:
-        pass
+    SESSION_FILE.unlink(missing_ok=True)
 
 
-def _validate_golden_files(cfg: AppConfig) -> None:
-    if not cfg.golden_image.is_file():
-        raise FileNotFoundError(f"Golden image not found: {cfg.golden_image}")
-    # run-qemu.sh can create a missing VARS file, but clone later needs the
-    # reviewed persistent state. During phase 2 we therefore expect/create it
-    # through run-qemu and verify it afterwards.
+def ensure_no_live_golden_session() -> None:
+    session = _read_live_session()
+    if session is None:
+        return
+    pid, image, _vars = session
+    raise RuntimeError(
+        f"A golden-image QEMU session is still running (pid {pid}, image {image}). "
+        "Shut it down cleanly before changing golden artifacts."
+    )
 
 
 def _copy_home_overlay(source_root: Path, *, key: Path) -> None:
@@ -188,11 +220,6 @@ def _install_final_continue_config(cfg: AppConfig) -> None:
 
 
 def _clean_manual_user_traces(cfg: AppConfig) -> None:
-    # finalize-golden is run only after the visible/manual VM has been shut down.
-    # It then boots the image headless, so there is no Chrome process that can
-    # rewrite profile databases after we remove sensitive state. Keep Chrome's
-    # Preferences/Secure Preferences/Bookmarks/Extensions intact; remove only
-    # history, credentials, sessions/site data and caches from the manual phase.
     script = r'''set -euo pipefail
 
 if pgrep -u "$USER" -f '(google-chrome|google-chrome-stable|/chrome)( |$)' >/dev/null 2>&1; then
@@ -206,43 +233,25 @@ sudo rm -f -- /root/.bash_history
 profile="$HOME/.config/google-chrome/Default"
 if [[ -d "$profile" ]]; then
     rm -f -- \
-        "$profile/History" \
-        "$profile/History-journal" \
-        "$profile/Login Data" \
-        "$profile/Login Data-journal" \
-        "$profile/Login Data For Account" \
-        "$profile/Login Data For Account-journal" \
-        "$profile/Cookies" \
-        "$profile/Cookies-journal" \
-        "$profile/Network/Cookies" \
-        "$profile/Network/Cookies-journal" \
-        "$profile/Visited Links" \
-        "$profile/Top Sites" \
-        "$profile/Top Sites-journal" \
-        "$profile/Shortcuts" \
-        "$profile/Shortcuts-journal" \
-        "$profile/Media History" \
-        "$profile/Media History-journal" \
-        "$profile/Current Session" \
-        "$profile/Current Tabs" \
-        "$profile/Last Session" \
-        "$profile/Last Tabs"
+        "$profile/History" "$profile/History-journal" \
+        "$profile/Login Data" "$profile/Login Data-journal" \
+        "$profile/Login Data For Account" "$profile/Login Data For Account-journal" \
+        "$profile/Cookies" "$profile/Cookies-journal" \
+        "$profile/Network/Cookies" "$profile/Network/Cookies-journal" \
+        "$profile/Visited Links" "$profile/Top Sites" "$profile/Top Sites-journal" \
+        "$profile/Shortcuts" "$profile/Shortcuts-journal" \
+        "$profile/Media History" "$profile/Media History-journal" \
+        "$profile/Current Session" "$profile/Current Tabs" \
+        "$profile/Last Session" "$profile/Last Tabs"
 
     rm -rf -- \
-        "$profile/Sessions" \
-        "$profile/Session Storage" \
-        "$profile/Local Storage" \
-        "$profile/IndexedDB" \
-        "$profile/Service Worker" \
-        "$profile/WebStorage" \
-        "$profile/Shared Dictionary" \
-        "$profile/Cache" \
-        "$profile/Code Cache" \
+        "$profile/Sessions" "$profile/Session Storage" "$profile/Local Storage" \
+        "$profile/IndexedDB" "$profile/Service Worker" "$profile/WebStorage" \
+        "$profile/Shared Dictionary" "$profile/Cache" "$profile/Code Cache" \
         "$profile/GPUCache"
 fi
 
 rm -rf -- "$HOME/.cache/google-chrome" "$HOME/.cache/google-chrome-stable"
-
 echo "Manual traces cleaned; Chrome preferences/bookmarks/extensions preserved."
 '''
     proc = subprocess.run(
@@ -264,30 +273,101 @@ def _optimize_image_size(cfg: AppConfig) -> None:
         print("WARN: image-size optimization (fstrim) returned a non-zero status", file=sys.stderr)
 
 
-def prepare_golden(cfg: AppConfig) -> int:
-    _validate_golden_files(cfg)
+def _find_built_qcow2(out_paths: list[Path]) -> Path:
+    candidates: list[Path] = []
+    for out in out_paths:
+        if out.is_file() and out.suffix == ".qcow2":
+            candidates.append(out)
+        elif out.is_dir():
+            candidates.extend(path for path in out.rglob("*.qcow2") if path.is_file())
+    unique = sorted({path.resolve() for path in candidates})
+    if len(unique) != 1:
+        rendered = "\n  ".join(str(path) for path in unique) or "<none>"
+        raise RuntimeError(
+            "nix build must produce exactly one QCOW2 artifact; found:\n  " + rendered
+        )
+    return unique[0]
 
-    print("Phase 2a — prepare golden image")
-    print(f"  image                 : {cfg.golden_image}")
-    print(f"  UEFI state            : {cfg.golden_vars}")
+
+def _nix_build_generic_qcow2() -> Path:
+    if shutil.which("nix") is None:
+        raise FileNotFoundError("Missing required command in PATH: nix")
+    cmd = ["nix", "build", ".#qcow2", "--no-link", "--print-out-paths"]
+    print("$ " + shlex.join(cmd))
+    proc = subprocess.run(
+        cmd,
+        cwd=REPO_ROOT,
+        stdout=subprocess.PIPE,
+        stderr=None,
+        text=True,
+        check=True,
+    )
+    out_paths = [Path(line.strip()) for line in (proc.stdout or "").splitlines() if line.strip()]
+    if not out_paths:
+        raise RuntimeError("nix build returned no output path")
+    return _find_built_qcow2(out_paths)
+
+
+def build_golden(cfg: AppConfig) -> int:
+    """Build and automatically prepare a new golden image for manual GUI work.
+
+    The command intentionally leaves QEMU running and keeps the disk under a
+    ``.building`` name. The manual golden becomes the stable
+    ``golden-*.qcow2`` only when ``finalize-golden`` starts after a clean manual
+    shutdown.
+    """
+
+    ensure_no_live_golden_session()
+    base_state = _require_no_partial_pair(cfg.golden_image, cfg.golden_vars, label="manual golden")
+    building_state = _require_no_partial_pair(
+        cfg.golden_building_image, cfg.golden_building_vars, label="building golden"
+    )
+    finalized_state = _require_no_partial_pair(
+        cfg.golden_finalized_image, cfg.golden_finalized_vars, label="finalized golden"
+    )
+    finalizing_state = _require_no_partial_pair(
+        cfg.golden_finalizing_image, cfg.golden_finalizing_vars, label="finalizing golden"
+    )
+
+    if base_state == "complete" and building_state == "complete":
+        raise RuntimeError(
+            "Both the stable manual golden and a .building golden exist. "
+            "Refusing to guess which manual lineage to use. Resolve this with reset-golden."
+        )
+    if base_state == "complete":
+        print(f"Manual golden already exists; build-golden skips it: {cfg.golden_image}")
+        print("Use reset-golden if you intentionally want to start the golden workflow from scratch.")
+        return 0
+    if finalized_state == "complete" or finalizing_state == "complete":
+        raise RuntimeError(
+            "A finalized/finalizing golden exists but the protected manual golden is missing. "
+            "Refusing to start a second golden lineage beside it. Use reset-golden to resolve this explicitly."
+        )
+    if building_state == "complete":
+        print(f"A golden work image already exists: {cfg.golden_building_image}")
+        print("Continue the manual work if needed, shut it down cleanly, then run finalize-golden.")
+        print("Use reset-golden if this work image should be discarded.")
+        return 0
+
+    print("Build golden image and prepare it for manual work")
+    print(f"  work image            : {cfg.golden_building_image}")
+    print(f"  work UEFI state       : {cfg.golden_building_vars}")
     print(f"  student home content  : {cfg.student_home_content or '(none)'}")
     print("  browser start page    : deliberately deferred to finalize-golden")
     print(f"  Continue config       : {cfg.final_continue_config}")
 
     if cfg.run.dry_run:
-        print("Dry run: no VM started and no files changed.")
+        print("Dry run: would run `nix build .#qcow2`, copy its QCOW2 to the .building image and start QEMU.")
         return 0
 
-    existing = _read_session(cfg)
-    if existing is not None:
-        raise RuntimeError(
-            f"A prepared golden-image QEMU session already appears to be running (pid {existing}). "
-            "Shut it down cleanly before starting another prepare-golden run."
-        )
+    cfg.vm_images_dir.mkdir(parents=True, exist_ok=True)
+    built = _nix_build_generic_qcow2()
+    print(f"Copying Nix QCOW2 {built} -> {cfg.golden_building_image}")
+    _copy_qcow2(built, cfg.golden_building_image)
 
     qemu = start_qemu(
-        disk=cfg.golden_image,
-        vars_file=cfg.golden_vars,
+        disk=cfg.golden_building_image,
+        vars_file=cfg.golden_building_vars,
         headless=False,
         discard=True,
     )
@@ -302,84 +382,125 @@ def prepare_golden(cfg: AppConfig) -> int:
         else:
             print("No student_home_content configured; overlay skipped.")
 
-        # Install the authoritative Continue configuration before the manual
-        # phase so Continue can be tested exactly as students will use it.
-        # Any .continue/config.yaml in the home overlay is deliberately ignored.
         _install_final_continue_config(cfg)
 
-        if not cfg.golden_vars.is_file():
-            raise FileNotFoundError(f"QEMU did not create the expected UEFI state: {cfg.golden_vars}")
+        if not cfg.golden_building_vars.is_file():
+            raise FileNotFoundError(
+                f"QEMU did not create the expected UEFI state: {cfg.golden_building_vars}"
+            )
 
-        _write_session(cfg, qemu.pid)
+        _write_session(
+            image=cfg.golden_building_image,
+            vars_file=cfg.golden_building_vars,
+            pid=qemu.pid,
+        )
         print()
-        print("prepare-golden complete. The VM is intentionally left running for manual work.")
-        print("Install/test VS Code extensions, Continue and Chrome now.")
+        print("build-golden automatic preparation is complete.")
+        print("The VM is intentionally left running for the manual Golden setup.")
         print("When the manual work is finished, shut the VM down cleanly, then run:")
         print("  ./scripts/mct-vm.py finalize-golden")
         return 0
     except Exception:
         if cfg.run.keep_failed_vm_running:
             print(f"Golden VM left running for diagnosis (pid {qemu.pid}).", file=sys.stderr)
-            _write_session(cfg, qemu.pid)
+            _write_session(
+                image=cfg.golden_building_image,
+                vars_file=cfg.golden_building_vars,
+                pid=qemu.pid,
+            )
         else:
             stop_qemu(qemu)
+            _clear_session()
         raise
 
 
 def finalize_golden(cfg: AppConfig) -> int:
-    _validate_golden_files(cfg)
+    """Finalize a powered-off manual golden without ever modifying it in-place."""
 
-    print("Phase 2b — finalize golden image")
-    print(f"  image                 : {cfg.golden_image}")
+    finalized_state = _require_no_partial_pair(
+        cfg.golden_finalized_image, cfg.golden_finalized_vars, label="finalized golden"
+    )
+    if finalized_state == "complete":
+        print(f"Finalized golden already exists; skipping: {cfg.golden_finalized_image}")
+        print("Use reset-finalized-golden if you intentionally want to finalize the manual golden again.")
+        return 0
+
+    ensure_no_live_golden_session()
+    _clear_session()
+
+    base_state = _require_no_partial_pair(cfg.golden_image, cfg.golden_vars, label="manual golden")
+    building_state = _require_no_partial_pair(
+        cfg.golden_building_image, cfg.golden_building_vars, label="building golden"
+    )
+
+    if base_state == "missing":
+        if building_state != "complete":
+            raise FileNotFoundError(
+                "No powered-off manual golden is available. Run build-golden first."
+            )
+        # The manual work is now complete. Publish that valuable source under
+        # its stable name before making the finalization copy.
+        print(f"Promoting manual work image: {cfg.golden_building_image} -> {cfg.golden_image}")
+        if not cfg.run.dry_run:
+            cfg.golden_building_image.replace(cfg.golden_image)
+            cfg.golden_building_vars.replace(cfg.golden_vars)
+    elif building_state == "complete":
+        raise RuntimeError(
+            "Both the stable manual golden and a .building golden exist. "
+            "Refusing to guess which contains the intended manual work. Use reset-golden to resolve this explicitly."
+        )
+
+    print("Finalize golden image from a protected copy")
+    print(f"  protected manual image: {cfg.golden_image}")
+    print(f"  working copy          : {cfg.golden_finalizing_image}")
+    print(f"  final output          : {cfg.golden_finalized_image}")
     print("  manual trace cleanup  : Bash history + sensitive Chrome state")
     print(f"  browser start page    : {cfg.browser_start_page}")
     print(f"  optimize image size   : {cfg.optimize_image_size}")
 
     if cfg.run.dry_run:
-        print("Dry run: no VM started and no files changed.")
+        print("Dry run: would copy the manual golden to .finalizing, clean it, shut it down, then rename to .finalized.")
         return 0
 
-    session_pid = _read_session(cfg)
-    if session_pid is not None:
-        raise RuntimeError(
-            f"The prepare-golden VM is still running (pid {session_pid}). "
-            "Shut the VM down cleanly before running finalize-golden. "
-            "Finalization deliberately starts from a powered-off manual session "
-            "so Bash/Chrome cannot rewrite state during cleanup."
-        )
+    # .finalizing is explicitly transient: never continue from a failed prior
+    # attempt. Always start from the protected manual golden.
+    cfg.golden_finalizing_image.unlink(missing_ok=True)
+    cfg.golden_finalizing_vars.unlink(missing_ok=True)
+    _copy_qcow2(cfg.golden_image, cfg.golden_finalizing_image)
+    _copy_plain(cfg.golden_vars, cfg.golden_finalizing_vars)
 
-    # A dead prepare-golden process leaves a harmless session marker behind.
-    # At this point the visible/manual VM is no longer running, so discard it
-    # and boot the reviewed image once, headless, for deterministic cleanup.
-    _clear_session()
-    print("Starting the powered-off golden image headless for final cleanup.")
     qemu = start_qemu(
-        disk=cfg.golden_image,
-        vars_file=cfg.golden_vars,
+        disk=cfg.golden_finalizing_image,
+        vars_file=cfg.golden_finalizing_vars,
         headless=True,
         discard=True,
     )
-    wait_for_ssh_service(qemu=qemu)
-
     try:
+        wait_for_ssh_service(qemu=qemu)
         verify_ssh_login(cfg.preparation_host_key)
         _clean_manual_user_traces(cfg)
-        # The start page is a managed system policy, so it is installed only
-        # after the manual Chrome state has been cleaned. User preferences such
-        # as privacy choices, search engine, bookmarks and extensions remain.
         _configure_browser_start_page(
-            start_page=cfg.browser_start_page, key=cfg.preparation_host_key
+            start_page=cfg.browser_start_page,
+            key=cfg.preparation_host_key,
         )
         _optimize_image_size(cfg)
-        print("Shutting down golden image cleanly...")
+        print("Shutting down finalizing golden cleanly...")
         poweroff_guest(key=cfg.preparation_host_key, qemu=qemu)
+
+        cfg.golden_finalizing_image.replace(cfg.golden_finalized_image)
+        cfg.golden_finalizing_vars.replace(cfg.golden_finalized_vars)
         _clear_session()
-        print("Golden image finalized successfully.")
+        print(f"Golden image finalized successfully: {cfg.golden_finalized_image}")
+        print(f"Protected manual source remains unchanged: {cfg.golden_image}")
         return 0
     except Exception:
         if cfg.run.keep_failed_vm_running:
             print(f"Golden VM left running for diagnosis (pid {qemu.pid}).", file=sys.stderr)
-            _write_session(cfg, qemu.pid)
+            _write_session(
+                image=cfg.golden_finalizing_image,
+                vars_file=cfg.golden_finalizing_vars,
+                pid=qemu.pid,
+            )
         else:
             stop_qemu(qemu)
             _clear_session()

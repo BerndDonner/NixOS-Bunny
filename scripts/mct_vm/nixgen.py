@@ -13,7 +13,7 @@ def _nix_string(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def generate_nix(*, csv_path: str, target_dir: str, dry_run: bool = False) -> int:
+def generate_hosts(*, csv_path: str, target_dir: str, dry_run: bool = False) -> int:
     doc = read_rollout_csv(csv_path)
     rows = doc.active_rows()
 
@@ -28,7 +28,7 @@ def generate_nix(*, csv_path: str, target_dir: str, dry_run: bool = False) -> in
         require_fields(
             row,
             ["vm", "course", "forgejo", "full_name", "email"],
-            command="generate-nix",
+            command="generate-hosts",
         )
 
         vm = row.vm

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import shutil
 import subprocess
-from pathlib import Path
 
 from .artifacts import image_artifacts, verify_checksum_sidecar, write_checksum_sidecar
 from .config import AppConfig
@@ -14,23 +13,9 @@ def warn(message: str) -> None:
     print(f"WARN:  {message}")
 
 
-def info(message: str) -> None:
-    print(message)
-
-
 def _need_cmd(name: str) -> None:
     if shutil.which(name) is None:
         raise FileNotFoundError(f"Missing required command in PATH: {name}")
-
-
-def _copy_qcow2(src: Path, dst: Path) -> None:
-    _need_cmd("cp")
-    subprocess.run(["cp", "--reflink=auto", "--sparse=always", str(src), str(dst)], check=True)
-
-
-def _copy_plain(src: Path, dst: Path) -> None:
-    _need_cmd("cp")
-    subprocess.run(["cp", "--reflink=auto", str(src), str(dst)], check=True)
 
 
 def _selected_rows(cfg: AppConfig) -> list[CsvRow]:
@@ -42,118 +27,75 @@ def _selected_rows(cfg: AppConfig) -> list[CsvRow]:
     )
 
 
-def clone_images(cfg: AppConfig) -> int:
-    rows = _selected_rows(cfg)
-    if not rows:
-        warn(f"No VMs selected from {cfg.assignments_file}")
-        return 0
-
-    if not cfg.golden_image.is_file():
-        raise FileNotFoundError(f"Missing golden QCOW2: {cfg.golden_image}")
-    if not cfg.golden_vars.is_file():
-        raise FileNotFoundError(
-            f"Missing golden UEFI state: {cfg.golden_vars}. "
-            "Run prepare-golden/finalize-golden first or verify the file name."
-        )
-
-    print(f"Cloning from: {cfg.golden_image}")
-    print(f"UEFI state : {cfg.golden_vars}")
-    print(f"Targets    : {cfg.vm_images_dir}")
-
-    planned: list[tuple[Path, Path, Path, Path]] = []
-    for row in rows:
-        require_fields(row, ["vm"], command="clone")
-        artifacts = image_artifacts(row.vm, cfg.vm_suffix)
-        planned.append(
-            (
-                cfg.golden_image,
-                artifacts.qcow2(cfg.vm_images_dir),
-                cfg.golden_vars,
-                artifacts.vars(cfg.vm_images_dir),
-            )
-        )
-
-    existing = sorted(
-        {str(path) for _src1, dst1, _src2, dst2 in planned for path in (dst1, dst2) if path.exists()}
-    )
-    if existing and not cfg.run.recreate_existing_images:
-        raise FileExistsError(
-            "clone refuses to reuse existing target files. Either move/delete them or set "
-            "[run].recreate_existing_images = true for this run:\n  " + "\n  ".join(existing)
-        )
-
-    if cfg.run.dry_run:
-        for src_qcow2, dst_qcow2, src_vars, dst_vars in planned:
-            action = "REPLACE" if dst_qcow2.exists() or dst_vars.exists() else "CREATE"
-            print(f"[{action}] {src_qcow2} -> {dst_qcow2}")
-            print(f"[{action}] {src_vars} -> {dst_vars}")
-        return 0
-
-    cfg.vm_images_dir.mkdir(parents=True, exist_ok=True)
-    for src_qcow2, dst_qcow2, src_vars, dst_vars in planned:
-        if cfg.run.recreate_existing_images:
-            dst_qcow2.unlink(missing_ok=True)
-            dst_vars.unlink(missing_ok=True)
-        info(f"Copying {src_qcow2} -> {dst_qcow2}")
-        _copy_qcow2(src_qcow2, dst_qcow2)
-        info(f"Copying {src_vars} -> {dst_vars}")
-        _copy_plain(src_vars, dst_vars)
-
-    return 0
-
-
-def prepare_images(cfg: AppConfig) -> int:
+def build_rollout_images(cfg: AppConfig) -> int:
     rows = _selected_rows(cfg)
     if not rows:
         warn(f"No VMs selected from {cfg.assignments_file}")
         return 0
 
     for row in rows:
-        require_fields(row, ["vm"], command="prepare-images")
+        require_fields(row, ["vm"], command="build-rollout-images")
         artifacts = image_artifacts(row.vm, cfg.vm_suffix)
         qcow2 = artifacts.qcow2(cfg.vm_images_dir)
-        vmdk = artifacts.vmdk(cfg.vm_images_dir)
+        vars_file = artifacts.vars(cfg.vm_images_dir)
+        vmdk_tmp = artifacts.building_vmdk(cfg.vm_images_dir)
+        zst_tmp = artifacts.building_compressed(cfg.vm_images_dir)
         zst = artifacts.compressed(cfg.vm_images_dir)
         sidecar = artifacts.checksum(cfg.vm_images_dir)
 
-        if cfg.run.dry_run:
-            print(f"Would ensure deployment artifact: {qcow2} -> {vmdk} -> {zst} + {sidecar.name}")
+        if qcow2.is_file() != vars_file.is_file():
+            raise RuntimeError(
+                f"Inconsistent finished VM artifacts for {row.vm}: expected QCOW2 and UEFI state together. "
+                "Run reset-vms to rebuild this VM cleanly."
+            )
+        if not qcow2.is_file():
+            raise FileNotFoundError(
+                f"Missing finished VM for {row.vm}: {qcow2}. Run build-vms first."
+            )
+
+        if zst.is_file() and sidecar.is_file():
+            sha = verify_checksum_sidecar(zst, sidecar)
+            print(f"[{row.vm}] rollout image already complete; skip (sha256={sha})")
             continue
 
-        if zst.exists():
-            warn(f"Using existing deployment image: {zst}")
-        else:
-            if vmdk.exists():
-                warn(f"Skipping convert: {vmdk} already exists")
-            else:
-                if not qcow2.is_file():
-                    raise FileNotFoundError(f"Missing source QCOW2 for {row.vm}: {qcow2}")
-                _need_cmd("qemu-img")
-                info(f"Converting {qcow2} -> {vmdk}")
-                subprocess.run(
-                    [
-                        "qemu-img", "convert", "-p", "-f", "qcow2", "-O", "vmdk",
-                        "-o", "subformat=monolithicSparse", str(qcow2), str(vmdk),
-                    ],
-                    check=True,
-                )
+        # The checksum sidecar is the commit record for a rollout artifact.
+        # A lone ZST is therefore an interrupted build, not a finished output.
+        if zst.exists() or sidecar.exists():
+            print(f"[{row.vm}] removing incomplete rollout output")
+            if not cfg.run.dry_run:
+                zst.unlink(missing_ok=True)
+                sidecar.unlink(missing_ok=True)
 
-            if not vmdk.is_file():
-                raise FileNotFoundError(f"Missing VMDK for {row.vm}: {vmdk}")
-            _need_cmd("zstd")
-            info(f"Compressing {vmdk} -> {zst}")
-            subprocess.run(["zstd", "-T0", str(vmdk), "-o", str(zst)], check=True)
+        print(f"[{row.vm}] {qcow2.name} -> {zst.name} + {sidecar.name}")
+        if cfg.run.dry_run:
+            continue
 
-        if not zst.is_file():
-            raise FileNotFoundError(f"Compressed image was not created for {row.vm}: {zst}")
+        vmdk_tmp.unlink(missing_ok=True)
+        zst_tmp.unlink(missing_ok=True)
+        _need_cmd("qemu-img")
+        _need_cmd("zstd")
 
-        if sidecar.is_file():
-            info(f"Verify existing checksum sidecar: {sidecar.name}")
-            sha = verify_checksum_sidecar(zst, sidecar)
-            info(f"Checksum OK: {sha}")
-        else:
-            info(f"SHA256 {zst.name}")
-            sha = write_checksum_sidecar(zst)
-            info(f"Wrote {sidecar}: {sha}")
+        print(f"[{row.vm}] converting QCOW2 -> temporary VMDK")
+        subprocess.run(
+            [
+                "qemu-img", "convert", "-p", "-f", "qcow2", "-O", "vmdk",
+                "-o", "subformat=monolithicSparse", str(qcow2), str(vmdk_tmp),
+            ],
+            check=True,
+        )
+
+        print(f"[{row.vm}] compressing temporary VMDK")
+        subprocess.run(["zstd", "-T0", str(vmdk_tmp), "-o", str(zst_tmp)], check=True)
+        if not zst_tmp.is_file():
+            raise FileNotFoundError(f"Compression did not create {zst_tmp}")
+
+        # Publish the compressed image, then atomically publish its checksum
+        # sidecar. A crash between these operations leaves a lone ZST, which is
+        # explicitly treated as incomplete on the next run.
+        zst_tmp.replace(zst)
+        sha = write_checksum_sidecar(zst)
+        verify_checksum_sidecar(zst, sidecar)
+        vmdk_tmp.unlink(missing_ok=True)
+        print(f"[{row.vm}] rollout image complete (sha256={sha})")
 
     return 0
