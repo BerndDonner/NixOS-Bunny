@@ -107,14 +107,20 @@ def ssh_base(key: Path) -> list[str]:
 
 
 def check_ssh_port_free() -> None:
+    """Fail only if something is actually listening on the provisioning port.
+
+    Do not probe availability with ``bind()`` here.  After one provisioning VM
+    shuts down, TCP connections to its forwarded SSH port may remain in
+    ``TIME_WAIT`` briefly.  A plain bind probe can then fail with EADDRINUSE
+    even though QEMU itself has already exited and no listener remains.
+    """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        try:
-            sock.bind((SSH_HOST, SSH_PORT))
-        except OSError as exc:
+        sock.settimeout(0.5)
+        if sock.connect_ex((SSH_HOST, SSH_PORT)) == 0:
             raise RuntimeError(
-                f"TCP port {SSH_HOST}:{SSH_PORT} is already in use. "
+                f"TCP port {SSH_HOST}:{SSH_PORT} already has a listener. "
                 "A QEMU provisioning VM may already be running."
-            ) from exc
+            )
 
 
 def _read_ssh_banner_once(timeout: float = 2.0) -> str:
