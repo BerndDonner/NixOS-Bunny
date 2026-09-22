@@ -31,6 +31,10 @@ def _copy_qcow2(src: Path, dst: Path) -> None:
         ["cp", "--reflink=auto", "--sparse=always", str(src), str(dst)],
         check=True,
     )
+    # Nix store paths are read-only. GNU cp preserves those mode bits when
+    # creating the destination, but QEMU needs to open the working QCOW2
+    # read/write. Keep the copied image private while restoring owner write.
+    dst.chmod(dst.stat().st_mode | stat.S_IWUSR)
 
 
 def _copy_plain(src: Path, dst: Path) -> None:
