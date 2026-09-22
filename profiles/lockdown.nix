@@ -34,18 +34,15 @@
     }
   ];
 
-  environment.etc."mct-exam-fallback.txt".text = ''
-    MCT exam fallback submission
-    ============================
-
-    Normal submission is Git over HTTPS.
-
-    If that is unavailable and the teacher gives you the fallback password,
-    open the network with exactly this command:
-
-      sudo /run/current-system/sw/bin/systemctl stop mct-exam-firewall.service
-
-    Stopping the service intentionally flushes the exam firewall ruleset.
+  # Make the fallback command impossible to miss when a terminal is opened.
+  # It is harmless without the per-VM password and is the only sudo command
+  # available to the student in lockdown mode.
+  programs.bash.interactiveShellInit = lib.mkAfter ''
+    echo
+    echo "=== MCT-Prüfung: Fallback-Abgabe ==="
+    echo "Nur falls die Git-Abgabe nicht funktioniert und die Lehrkraft das Passwort freigibt:"
+    echo "  sudo /run/current-system/sw/bin/systemctl stop mct-exam-firewall.service"
+    echo
   '';
 
   systemd.services.mct-exam-firewall = {

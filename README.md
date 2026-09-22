@@ -334,12 +334,13 @@ sudo /run/current-system/sw/bin/systemctl stop mct-exam-firewall.service
 ```
 
 This intentionally flushes the lockdown nftables ruleset and opens the network.
-The same command is available offline inside every lockdown VM in
-`/etc/mct-exam-fallback.txt`.
+The command is printed prominently whenever the student opens a new interactive
+Bash terminal in a lockdown VM, so there is no separate fallback file to find.
 
-Passwords are generated separately for each VM and each configured exam repo.
-They are **not** stored in Git, `config.toml`, the Nix store, or the per-VM build
-log. The teacher-side mapping is stored with mode `0600` at:
+Passwords are generated separately for each VM and each configured exam repo in
+a deliberately easy-to-read form such as `Birke-Mond-47`: two simple words and
+two digits. They are **not** stored in Git, `config.toml`, the Nix store, or the
+per-VM build log. The teacher-side mapping is stored with mode `0600` at:
 
 ```text
 .mct-vm/lockdown-passwords/<Prüfungsbezeichnung>.csv

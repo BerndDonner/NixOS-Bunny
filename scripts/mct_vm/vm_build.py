@@ -282,9 +282,30 @@ def _lockdown_password_file(repo_name: str) -> Path:
     return REPO_ROOT / ".mct-vm" / "lockdown-passwords" / f"{repo_name}.csv"
 
 
-def _new_lockdown_password(length: int = 18) -> str:
-    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
-    return "".join(secrets.choice(alphabet) for _ in range(length))
+_LOCKDOWN_PASSWORD_WORDS = (
+    "Adler", "Ahorn", "Ampel", "Anker", "Apfel", "Bach", "Ball", "Berg",
+    "Birke", "Blatt", "Blume", "Boot", "Brot", "Buch", "Bus", "Dach",
+    "Dorf", "Eiche", "Eule", "Fahne", "Feld", "Fisch", "Fluss", "Fuchs",
+    "Gabel", "Garten", "Glas", "Gras", "Hafen", "Haus", "Hecke", "Himmel",
+    "Hund", "Insel", "Jacke", "Karte", "Katze", "Kerze", "Kiesel", "Kiste",
+    "Kran", "Kreis", "Lampe", "Linde", "Loewe", "Mond", "Muehle", "Nebel",
+    "Nest", "Ofen", "Park", "Pferd", "Pilz", "Radio", "Regen", "Ring",
+    "Rose", "Schaf", "Schiff", "See", "Sonne", "Stern", "Stift", "Stein",
+    "Stuhl", "Tanne", "Tiger", "Tisch", "Tor", "Turm", "Vogel", "Wald",
+    "Weg", "Wiese", "Wind", "Wolke", "Wurm", "Zahn", "Zaun", "Zelt",
+    "Zug", "Birne", "Bruecke", "Eimer", "Feder", "Glocke", "Hase", "Hut",
+    "Kanne", "Leiter", "Maus", "Pinsel", "Rad", "Schale", "Schuh", "Seil",
+)
+
+
+def _new_lockdown_password() -> str:
+    # Deliberately easy to read and dictate at the end of an exam.  The
+    # password only protects the single sudo fallback command and therefore
+    # needs short-lived exam-level resistance, not long-term account security.
+    left = secrets.choice(_LOCKDOWN_PASSWORD_WORDS)
+    right = secrets.choice(_LOCKDOWN_PASSWORD_WORDS)
+    number = secrets.randbelow(100)
+    return f"{left}-{right}-{number:02d}"
 
 
 def _load_lockdown_passwords(repo_name: str) -> dict[str, tuple[str, str]]:
