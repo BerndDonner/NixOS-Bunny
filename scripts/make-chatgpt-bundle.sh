@@ -5,7 +5,6 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd)
 ROOT_NAME=$(basename -- "$ROOT")
 REPOS_DIR="$ROOT/repos"
-OUTPUT=${1:-"$(dirname -- "$ROOT")/${ROOT_NAME}-chatgpt.zip"}
 
 for cmd in git tar zip; do
     command -v "$cmd" >/dev/null 2>&1 || {
@@ -13,6 +12,38 @@ for cmd in git tar zip; do
         exit 1
     }
 done
+
+ROOT_HEAD=$(git -C "$ROOT" rev-parse --short=8 HEAD 2>/dev/null || echo "nohead")
+TIMESTAMP=$(date '+%Y%m%d-%H%M%S')
+DEFAULT_OUTPUT="$(dirname -- "$ROOT")/${ROOT_NAME}-chatgpt-${TIMESTAMP}-${ROOT_HEAD}.zip"
+OUTPUT=${1:-"$DEFAULT_OUTPUT"}
+
+unique_output_path() {
+    local requested=$1
+    local dir base stem ext candidate n
+
+    dir=$(dirname -- "$requested")
+    base=$(basename -- "$requested")
+
+    if [[ "$base" == *.zip ]]; then
+        stem=${base%.zip}
+        ext=.zip
+    else
+        stem=$base
+        ext=
+    fi
+
+    candidate="$dir/$stem$ext"
+    n=2
+    while [[ -e "$candidate" ]]; do
+        candidate="$dir/$stem-$n$ext"
+        ((n++))
+    done
+
+    printf '%s\n' "$candidate"
+}
+
+OUTPUT=$(unique_output_path "$OUTPUT")
 
 canonical_path() {
     (cd -- "$1" && pwd -P)
@@ -97,7 +128,6 @@ for repo in "${repos[@]}"; do
 done
 
 mkdir -p -- "$(dirname -- "$OUTPUT")"
-rm -f -- "$OUTPUT"
 (
     cd -- "$tmp"
     zip -qr "$OUTPUT" "$ROOT_NAME"
