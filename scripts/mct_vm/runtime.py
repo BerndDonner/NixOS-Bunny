@@ -220,6 +220,7 @@ def start_qemu(
     vars_file: Path,
     headless: bool,
     discard: bool,
+    arduino: bool = False,
     stdout=None,
 ) -> subprocess.Popen[bytes]:
     check_ssh_port_free()
@@ -228,6 +229,8 @@ def start_qemu(
         cmd.append("--headless")
     if discard:
         cmd.append("--discard")
+    if arduino:
+        cmd.append("--arduino")
     cmd.extend(["--ssh", "--port", str(SSH_PORT), "--vars", str(vars_file), str(disk)])
     return subprocess.Popen(cmd, stdout=stdout, stderr=subprocess.STDOUT if stdout is not None else None)
 

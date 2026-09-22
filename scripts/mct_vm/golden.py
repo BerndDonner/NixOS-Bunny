@@ -355,6 +355,7 @@ def build_golden(cfg: AppConfig) -> int:
     print(f"  student home content  : {cfg.student_home_content or '(none)'}")
     print("  browser start page    : deliberately deferred to finalize-golden")
     print(f"  Continue config       : {cfg.final_continue_config}")
+    print("  Arduino USB passthrough: enabled for manual hardware test")
 
     if cfg.run.dry_run:
         print("Dry run: would run `nix build .#qcow2`, copy its QCOW2 to the .building image and start QEMU.")
@@ -370,6 +371,7 @@ def build_golden(cfg: AppConfig) -> int:
         vars_file=cfg.golden_building_vars,
         headless=False,
         discard=True,
+        arduino=True,
     )
 
     try:
