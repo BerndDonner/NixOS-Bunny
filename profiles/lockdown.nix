@@ -17,6 +17,37 @@
   networking.firewall.enable = false;
   networking.nftables.enable = true;
 
+  # In lockdown the student is deliberately not an administrator.  The only
+  # privileged fallback action is opening the network for manual submission,
+  # and sudo must authenticate with the per-VM exam password.
+  users.users.student.extraGroups = lib.mkForce [ "dialout" ];
+  security.sudo.wheelNeedsPassword = lib.mkForce true;
+  security.sudo.extraRules = [
+    {
+      users = [ "student" ];
+      commands = [
+        {
+          command = "/run/current-system/sw/bin/systemctl stop mct-exam-firewall.service";
+          options = [ "PASSWD" ];
+        }
+      ];
+    }
+  ];
+
+  environment.etc."mct-exam-fallback.txt".text = ''
+    MCT exam fallback submission
+    ============================
+
+    Normal submission is Git over HTTPS.
+
+    If that is unavailable and the teacher gives you the fallback password,
+    open the network with exactly this command:
+
+      sudo /run/current-system/sw/bin/systemctl stop mct-exam-firewall.service
+
+    Stopping the service intentionally flushes the exam firewall ruleset.
+  '';
+
   systemd.services.mct-exam-firewall = {
     description = "MCT exam lockdown firewall";
     wants = [ "network-online.target" ];

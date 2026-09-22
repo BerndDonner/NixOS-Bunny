@@ -23,5 +23,5 @@ never run the corresponding build automatically.
 - `scripts/config/rollout-lockdown.csv` must be created/reviewed for the actual exam seating/selection.
 - `[lockdown].repo` must point to the exact clean local exam Git repository under ignored `repos/`.
 - Pilot-test one lockdown VM end-to-end: local Git-bundle copy, final lockdown switch, old-generation removal, bootloader update, firewall validation and cold boot.
-- **Known accepted first-exam gap:** `student` is still in `wheel` with passwordless sudo, so a knowledgeable student can run `sudo systemctl stop mct-exam-firewall`. Harden this before the second exam.
+- Lockdown sudo is hardened: `student` is removed from `wheel`; only the exact password-protected firewall-stop command is allowed. Verify the generated per-VM fallback passwords before the exam.
 - Git/HTTPS is the normal exam submission path; pilot-test create-repos -> build-vms origin -> grant -> git pub -> revoke end-to-end.

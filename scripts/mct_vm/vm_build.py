@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import secrets
 import shlex
 import shutil
 import subprocess
@@ -276,22 +278,82 @@ echo "Exam repository installed: $repo_dir ($branch) -> $forgejo_url"
 '''
 
 
-def _lockdown_finalize_script() -> str:
-    return r'''set -euo pipefail
+def _lockdown_password_file(repo_name: str) -> Path:
+    return REPO_ROOT / ".mct-vm" / "lockdown-passwords" / f"{repo_name}.csv"
+
+
+def _new_lockdown_password(length: int = 18) -> str:
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+def _load_lockdown_passwords(repo_name: str) -> dict[str, tuple[str, str]]:
+    path = _lockdown_password_file(repo_name)
+    if not path.is_file():
+        return {}
+
+    result: dict[str, tuple[str, str]] = {}
+    with path.open(newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        if reader.fieldnames != ["vm", "forgejo", "password"]:
+            raise ValueError(f"Unexpected lockdown password file format: {path}")
+        for row in reader:
+            vm = (row.get("vm") or "").strip()
+            forgejo = (row.get("forgejo") or "").strip()
+            password = row.get("password") or ""
+            if not vm or not forgejo or not password:
+                raise ValueError(f"Incomplete lockdown password row in {path}")
+            result[vm] = (forgejo, password)
+    return result
+
+
+def _ensure_lockdown_password(
+    repo_name: str, *, vm: str, forgejo: str
+) -> tuple[str, Path]:
+    path = _lockdown_password_file(repo_name)
+    entries = _load_lockdown_passwords(repo_name)
+
+    if vm in entries:
+        stored_forgejo, password = entries[vm]
+        if stored_forgejo != forgejo:
+            raise ValueError(
+                f"Lockdown password file {path} maps {vm} to Forgejo login "
+                f"{stored_forgejo!r}, but rollout-lockdown.csv now says {forgejo!r}. "
+                "Delete or review the password file before rebuilding this exam."
+            )
+        return password, path
+
+    entries[vm] = (forgejo, _new_lockdown_password())
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["vm", "forgejo", "password"])
+        for stored_vm in sorted(entries):
+            stored_forgejo, password = entries[stored_vm]
+            writer.writerow([stored_vm, stored_forgejo, password])
+    tmp.chmod(0o600)
+    tmp.replace(path)
+    path.chmod(0o600)
+    return entries[vm][1], path
+
+
+def _lockdown_finalize_script(password: str) -> str:
+    script = r'''set -euo pipefail
 
 target=$1
 expected_hostname=$2
 fail() { echo "ERROR: $*" >&2; exit 1; }
 
 echo "Switching to final lockdown generation: $target"
-sudo nixos-rebuild switch --flake "path:/home/student/NixOS-Bunny#$target"
+nixos-rebuild switch --flake "path:/home/student/NixOS-Bunny#$target"
 
 # Keep only the current system generation so the bootloader cannot be used to
 # select an older classroom generation without the exam firewall.
-sudo nix-env --profile /nix/var/nix/profiles/system --delete-generations old
-sudo /run/current-system/bin/switch-to-configuration boot
+nix-env --profile /nix/var/nix/profiles/system --delete-generations old
+/run/current-system/bin/switch-to-configuration boot
 
-generation_count=$(sudo nix-env --profile /nix/var/nix/profiles/system --list-generations | sed '/^[[:space:]]*$/d' | wc -l)
+generation_count=$(nix-env --profile /nix/var/nix/profiles/system --list-generations | sed '/^[[:space:]]*$/d' | wc -l)
 [[ "$generation_count" -eq 1 ]] || fail "expected exactly one NixOS system generation, found $generation_count"
 boot_entry_count=$(find /boot/loader/entries -maxdepth 1 -type f -name 'nixos-generation-*.conf' 2>/dev/null | wc -l)
 [[ "$boot_entry_count" -eq 1 ]] || fail "expected exactly one bootable NixOS generation entry, found $boot_entry_count"
@@ -300,13 +362,18 @@ systemctl is-enabled --quiet mct-exam-firewall || fail "mct-exam-firewall is not
 systemctl is-active --quiet mct-exam-firewall || fail "mct-exam-firewall is not active"
 
 if command -v nft >/dev/null 2>&1; then
-    sudo nft list table inet mct_exam >/dev/null || fail "mct_exam nftables table is missing"
+    nft list table inet mct_exam >/dev/null || fail "mct_exam nftables table is missing"
 fi
 
-sudo fstrim -av || true
+# Set the per-VM fallback password only after the lockdown generation is active.
+# The password never enters Nix evaluation/the Nix store and is not logged.
+printf '%s:%s\n' student __PASSWORD__ | chpasswd
+
+fstrim -av || true
 echo "LOCKDOWN_FINALIZATION_OK"
-sudo systemctl poweroff
+systemctl poweroff
 '''
+    return script.replace("__PASSWORD__", shlex.quote(password))
 
 
 def _prepare_lockdown_bundle(cfg: AppConfig, temp_dir: Path) -> tuple[Path, str, str]:
@@ -575,11 +642,22 @@ def build_vms(cfg: AppConfig) -> int:
                     # intentionally blocked. Cleanup, validation and poweroff all
                     # happen inside this already-established connection.
                     target = f"{vm}-lockdown"
+                    fallback_password, password_file = _ensure_lockdown_password(
+                        repo_name, vm=vm, forgejo=student
+                    )
+                    print(f"[{vm}] fallback sudo password stored in: {password_file}")
                     print(f"[{vm}] switching to final lockdown generation and removing older generations...")
+                    quoted_args = " ".join(shlex.quote(arg) for arg in [target, target])
+                    # Start one root shell while the normal classroom generation still
+                    # has provisioning sudo.  The root shell survives the switch to the
+                    # hardened lockdown generation, where student is no longer in wheel.
                     proc = _run_logged(
-                        remote_script_command(cfg.preparation_host_key, [target, target]),
+                        [
+                            *ssh_base(cfg.preparation_host_key),
+                            f"sudo bash -s -- {quoted_args}",
+                        ],
                         log_path=vm_log,
-                        input_text=_lockdown_finalize_script(),
+                        input_text=_lockdown_finalize_script(fallback_password),
                         check=False,
                     )
                     if "LOCKDOWN_FINALIZATION_OK" not in (proc.stdout or ""):

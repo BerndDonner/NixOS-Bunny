@@ -318,9 +318,41 @@ configuration, validates that exactly one system generation remains and that
 `mct-exam-firewall` is enabled/active, then powers the VM off. This prevents a
 student from selecting an older non-lockdown generation from the bootloader.
 
-The known first-exam limitation remains deliberate: `student` still has
-passwordless wheel access and could stop `mct-exam-firewall`. This is documented
-in `doc/TODO` for hardening before the second exam.
+In the final lockdown generation `student` is **not** a member of `wheel`.
+The only privileged fallback operation granted through sudo is stopping the
+exam firewall, and it requires the per-VM fallback password generated during
+`build-vms`.
+
+### Fallback submission: deliberately open the network
+
+Normal exam submission is Git over HTTPS. If that path is unavailable, the
+teacher can give the affected student the VM-specific fallback password. The
+student then runs exactly:
+
+```bash
+sudo /run/current-system/sw/bin/systemctl stop mct-exam-firewall.service
+```
+
+This intentionally flushes the lockdown nftables ruleset and opens the network.
+The same command is available offline inside every lockdown VM in
+`/etc/mct-exam-fallback.txt`.
+
+Passwords are generated separately for each VM and each configured exam repo.
+They are **not** stored in Git, `config.toml`, the Nix store, or the per-VM build
+log. The teacher-side mapping is stored with mode `0600` at:
+
+```text
+.mct-vm/lockdown-passwords/<Prüfungsbezeichnung>.csv
+```
+
+Keep that file available until the exam and distribute a password only when the
+fallback is actually needed. Rebuilding the same VM for the same exam reuses its
+existing password; changing the exam repository name creates a separate password
+file.
+
+Existing lockdown images built before this hardening must be rebuilt (`reset-vms`
+then `build-vms` in lockdown mode); changing the repository alone cannot remove
+`wheel` from an already-built image.
 
 ### Create per-student Forgejo exam repositories
 
