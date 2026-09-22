@@ -36,12 +36,12 @@ def build_rollout_images(cfg: AppConfig) -> int:
     for row in rows:
         require_fields(row, ["vm"], command="build-rollout-images")
         artifacts = image_artifacts(row.vm, cfg.vm_suffix)
-        qcow2 = artifacts.qcow2(cfg.vm_images_dir)
-        vars_file = artifacts.vars(cfg.vm_images_dir)
-        vmdk_tmp = artifacts.building_vmdk(cfg.vm_images_dir)
-        zst_tmp = artifacts.building_compressed(cfg.vm_images_dir)
-        zst = artifacts.compressed(cfg.vm_images_dir)
-        sidecar = artifacts.checksum(cfg.vm_images_dir)
+        qcow2 = artifacts.qcow2(cfg.vm_artifacts_dir)
+        vars_file = artifacts.vars(cfg.vm_artifacts_dir)
+        vmdk_tmp = artifacts.building_vmdk(cfg.vm_artifacts_dir)
+        zst_tmp = artifacts.building_compressed(cfg.vm_artifacts_dir)
+        zst = artifacts.compressed(cfg.vm_artifacts_dir)
+        sidecar = artifacts.checksum(cfg.vm_artifacts_dir)
 
         if qcow2.is_file() != vars_file.is_file():
             raise RuntimeError(

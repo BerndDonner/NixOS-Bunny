@@ -30,7 +30,9 @@
 mode = "classroom"
 
 [paths]
-# Directory containing golden images and all per-VM build artifacts.
+# Directory containing golden images. Derived Bunny artifacts are placed in
+# a subdirectory named after the active golden image, e.g.
+# ~/VirtualMashines/golden-26.05/bunny02.qcow2.
 vm_images_dir = "~/VirtualMashines"
 
 # Runtime logs written by VM/golden preparation and rollout.
@@ -61,8 +63,10 @@ preparation_host_key = "~/.ssh/mct-vm-setup"
 optimize_image_size = true
 
 [courses]
-# Classroom repository bootstrap. {repo}=MCT_<course>; {course} is also available.
-public_source = "https://github.com/BerndDonner/{repo}.git"
+# Local classroom repository used as the exact bootstrap source.
+# {repo}=MCT_<course>; {course} is also available. The repository must be
+# committed and clean; build-vms transfers it via a local git bundle.
+source = "repos/{repo}"
 
 # Classroom Forgejo remote configured as origin. No credentials are used during
 # image building; student branches are first published later with git pub.

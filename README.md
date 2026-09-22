@@ -202,12 +202,12 @@ golden-26.05.qcow2             protected, powered-off manual golden
 golden-26.05.finalizing.qcow2  disposable finalization copy
 golden-26.05.finalized.qcow2   source accepted by build-vms
 
-bunny00.building.qcow2         interrupted/in-progress VM build
-bunny00.qcow2                  successfully built classroom VM
-bunny00-lockdown.qcow2         successfully built lockdown VM
+<golden-name>/bunny00.building.qcow2  interrupted/in-progress VM build
+<golden-name>/bunny00.qcow2           successfully built classroom VM
+<golden-name>/bunny00-lockdown.qcow2  successfully built lockdown VM
 
-bunny00.building.vmdk.zst      in-progress rollout image
-bunny00.vmdk.zst + .sha256     committed rollout artifact
+<golden-name>/bunny00.building.vmdk.zst  in-progress rollout image
+<golden-name>/bunny00.vmdk.zst + .sha256 committed rollout artifact
 ```
 
 A normal build command skips an already complete final output. To deliberately
@@ -288,9 +288,11 @@ renames the pair to the final `bunnyXX*` names. A final pair therefore means the
 whole VM build succeeded. A stale `.building` pair from an interrupted run is
 recreated from the finalized golden.
 
-For classroom mode, `build-vms` keeps the previous course workflow: host-specific
-Nix configuration, reboot, public GitHub bootstrap, Forgejo as the only final
-remote, student branch/setup hooks/VS Code protection, validation and shutdown.
+For classroom mode, `build-vms` uses the reviewed local course repository configured
+under `[courses].source` (normally `repos/MCT_<course>`). It creates a local Git
+bundle, copies that exact committed state into each VM, and configures Forgejo as
+the only final remote. No GitHub bootstrap is involved. Student branch/setup
+hooks/VS Code protection, validation and shutdown remain unchanged.
 
 For lockdown mode, `scripts/config/rollout-lockdown.csv` selects the VMs while
 `hosts/bunnyXX.nix` still comes from the classroom identity mapping. The exam
@@ -487,7 +489,7 @@ option has been removed.
 
 ## First-boot bootstrap of NixOS-Bunny
 
-The public repository is cloned automatically on first boot:
+The NixOS-Bunny configuration repository is cloned automatically on first boot:
 
 ```text
 https://github.com/BerndDonner/NixOS-Bunny.git

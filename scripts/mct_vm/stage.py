@@ -62,8 +62,8 @@ def _preflight_images(cfg: AppConfig) -> list[StagedImage]:
     for row in rows:
         require_fields(row, ["vm"], command="stage-rollout")
         artifacts = image_artifacts(row.vm, cfg.vm_suffix)
-        image = artifacts.compressed(cfg.vm_images_dir)
-        sidecar = artifacts.checksum(cfg.vm_images_dir)
+        image = artifacts.compressed(cfg.vm_artifacts_dir)
+        sidecar = artifacts.checksum(cfg.vm_artifacts_dir)
         sha = verify_checksum_sidecar(image, sidecar)
         staged.append(StagedImage(row.vm, image, sidecar, sha))
     return staged

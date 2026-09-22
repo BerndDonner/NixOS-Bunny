@@ -61,7 +61,7 @@ class AppConfig:
     browser_start_page: str
     preparation_host_key: Path
     optimize_image_size: bool
-    course_public_source: str
+    course_source: str
     course_student_origin: str
     forgejo_host: str
     forgejo_exam_owner: str
@@ -113,6 +113,11 @@ class AppConfig:
     @property
     def golden_finalized_vars(self) -> Path:
         return self._vars_for(self.golden_finalized_image)
+
+    @property
+    def vm_artifacts_dir(self) -> Path:
+        """Derived per-VM artifacts for the active golden lineage."""
+        return self.vm_images_dir / self.golden_image.stem
 
     @property
     def generated_hosts_dir(self) -> Path:
@@ -202,7 +207,7 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
     )
     provisioning = _table(data, "provisioning", {"preparation_host_key"})
     images = _table(data, "images", {"optimize_image_size"})
-    courses = _table(data, "courses", {"public_source", "student_origin"})
+    courses = _table(data, "courses", {"source", "student_origin"})
     forgejo = _table(data, "forgejo", {"host", "exam_owner"})
     lockdown = _table(data, "lockdown", {"repo"})
     rollout = _table(
@@ -257,7 +262,7 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
             _required_str(provisioning, "preparation_host_key", "provisioning")
         ),
         optimize_image_size=_bool(images, "optimize_image_size", "images", True),
-        course_public_source=_required_str(courses, "public_source", "courses"),
+        course_source=_required_str(courses, "source", "courses"),
         course_student_origin=_required_str(courses, "student_origin", "courses"),
         forgejo_host=_required_str(forgejo, "host", "forgejo"),
         forgejo_exam_owner=_required_str(forgejo, "exam_owner", "forgejo"),

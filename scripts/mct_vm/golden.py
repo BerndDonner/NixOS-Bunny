@@ -361,10 +361,12 @@ def build_golden(cfg: AppConfig) -> int:
     print(f"  student home content  : {cfg.student_home_content or '(none)'}")
     print("  browser start page    : deliberately deferred to finalize-golden")
     print(f"  Continue config       : {cfg.final_continue_config}")
-    print("  Arduino USB passthrough: enabled for manual hardware test")
+    print("  automatic preparation  : isolated headless boot")
+    print("  manual GUI boot         : starts only after preparation has powered off")
+    print("  Arduino USB passthrough : enabled for manual hardware test")
 
     if cfg.run.dry_run:
-        print("Dry run: would run `nix build .#qcow2`, copy its QCOW2 to the .building image and start QEMU.")
+        print("Dry run: would build/copy the QCOW2, prepare it headlessly, power it off, then start the manual GUI VM.")
         return 0
 
     cfg.vm_images_dir.mkdir(parents=True, exist_ok=True)
@@ -372,17 +374,19 @@ def build_golden(cfg: AppConfig) -> int:
     print(f"Copying Nix QCOW2 {built} -> {cfg.golden_building_image}")
     _copy_qcow2(built, cfg.golden_building_image)
 
-    qemu = start_qemu(
+    # Automatic mutations happen in a separate headless boot.  This removes the
+    # race where SDDM/Plasma could start using /home/student while SSH
+    # provisioning was still overlaying files into that same home directory.
+    prep_qemu = start_qemu(
         disk=cfg.golden_building_image,
         vars_file=cfg.golden_building_vars,
-        headless=False,
+        headless=True,
         discard=True,
-        arduino=True,
     )
 
     try:
-        print("Waiting for provisioning SSH...")
-        wait_for_ssh_service(qemu=qemu)
+        print("Waiting for provisioning SSH in isolated headless boot...")
+        wait_for_ssh_service(qemu=prep_qemu)
         verify_ssh_login(cfg.preparation_host_key)
 
         if cfg.student_home_content is not None:
@@ -397,19 +401,35 @@ def build_golden(cfg: AppConfig) -> int:
                 f"QEMU did not create the expected UEFI state: {cfg.golden_building_vars}"
             )
 
+        print("Automatic preparation complete; powering off preparation boot...")
+        poweroff_guest(key=cfg.preparation_host_key, qemu=prep_qemu)
+
+        print("Starting visible Golden VM for manual work...")
+        manual_qemu = start_qemu(
+            disk=cfg.golden_building_image,
+            vars_file=cfg.golden_building_vars,
+            headless=False,
+            discard=True,
+            arduino=True,
+        )
+        # Wait for a complete second boot before returning control. There are no
+        # more automatic mutations after this point, so logging in is safe.
+        wait_for_ssh_service(qemu=manual_qemu)
+
         _write_session(
             image=cfg.golden_building_image,
             vars_file=cfg.golden_building_vars,
-            pid=qemu.pid,
+            pid=manual_qemu.pid,
         )
         print()
         print("build-golden automatic preparation is complete.")
-        print("The VM is intentionally left running for the manual Golden setup.")
+        print("The visible VM is now ready for the manual Golden setup; it is safe to log in.")
         print("When the manual work is finished, shut the VM down cleanly, then run:")
         print("  ./scripts/mct-vm.py finalize-golden")
         return 0
     except Exception:
-        if cfg.run.keep_failed_vm_running:
+        qemu = locals().get("manual_qemu", prep_qemu)
+        if cfg.run.keep_failed_vm_running and qemu.poll() is None:
             print(f"Golden VM left running for diagnosis (pid {qemu.pid}).", file=sys.stderr)
             _write_session(
                 image=cfg.golden_building_image,

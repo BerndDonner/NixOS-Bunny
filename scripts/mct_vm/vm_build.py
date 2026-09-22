@@ -117,7 +117,7 @@ course=$1
 student=$2
 full_name=$3
 email=$4
-github_url=$5
+bundle_path=$5
 forgejo_url=$6
 
 repo="MCT_${course}"
@@ -140,17 +140,9 @@ if [[ -e "$repo_dir" && ! -d "$repo_dir/.git" ]]; then
 fi
 
 if [[ ! -d "$repo_dir/.git" ]]; then
-    echo "Cloning public bootstrap mirror: $github_url"
-    cloned=0
-    for attempt in $(seq 1 10); do
-        if git clone -o github "$github_url" "$repo_dir"; then
-            cloned=1; break
-        fi
-        echo "Clone attempt $attempt/10 failed; retrying in 2 seconds..." >&2
-        rm -rf "$repo_dir"
-        sleep 2
-    done
-    [[ "$cloned" -eq 1 ]] || fail "could not clone $github_url"
+    [[ -f "$bundle_path" ]] || fail "classroom Git bundle is missing: $bundle_path"
+    echo "Cloning reviewed local classroom bundle: $bundle_path"
+    git clone "$bundle_path" "$repo_dir" || fail "could not clone $bundle_path"
 fi
 
 cd "$repo_dir"
@@ -158,13 +150,6 @@ if git remote get-url origin >/dev/null 2>&1; then
     git remote set-url origin "$forgejo_url"
 else
     git remote add origin "$forgejo_url"
-fi
-if [[ "$(git config --local --get branch.master.remote 2>/dev/null || true)" == "github" ]]; then
-    git config --local --unset-all branch.master.remote 2>/dev/null || true
-    git config --local --unset-all branch.master.merge 2>/dev/null || true
-fi
-if git remote get-url github >/dev/null 2>&1; then
-    git remote remove github
 fi
 
 if grep -Eq '\.continue/config\.yaml|arduino-cli\.yaml' _config/setup.sh; then
@@ -218,12 +203,8 @@ cd "$repo_dir"
 expected_branch=$student
 [[ "$student" == "donner" ]] && expected_branch=master
 [[ "$(git branch --show-current)" == "$expected_branch" ]] || fail "wrong Git branch"
-if git remote get-url github >/dev/null 2>&1; then fail "GitHub bootstrap remote is still present"; fi
 [[ "$(git remote)" == "origin" ]] || fail "finished repository must contain only the Forgejo origin remote"
 [[ "$(git remote get-url origin)" == "$forgejo_url" ]] || fail "wrong origin remote URL"
-if git config --local --get-regexp '^branch\..*\.remote$' 2>/dev/null | grep -Eq '[[:space:]]github$'; then
-    fail "branch tracking metadata still refers to removed GitHub remote"
-fi
 [[ "$(git config --local --get core.hooksPath 2>/dev/null || true)" == "_config/hooks" ]] || fail "course hooks are not active"
 git config --local --get-all include.path | grep -Fxq '../_config/gitconfig' || fail "course gitconfig include is missing"
 [[ -f .vscode/settings.json ]] || fail ".vscode/settings.json is missing"
@@ -400,12 +381,17 @@ systemctl poweroff
     return script.replace("__PASSWORD__", shlex.quote(password))
 
 
-def _prepare_lockdown_bundle(cfg: AppConfig, temp_dir: Path) -> tuple[Path, str, str]:
-    repo = cfg.lockdown_repo
-    if repo is None:
-        raise ValueError("[lockdown].repo is empty; configure the local exam repository first")
+def _format_source_path(template: str, *, repo: str, course: str) -> Path:
+    rendered = _format_url(template, repo=repo, course=course)
+    path = Path(rendered).expanduser()
+    if not path.is_absolute():
+        path = REPO_ROOT / path
+    return path.resolve()
+
+
+def _prepare_repo_bundle(repo: Path, temp_dir: Path, *, label: str) -> tuple[Path, str, str]:
     if not repo.is_dir() or not (repo / ".git").exists():
-        raise FileNotFoundError(f"Configured lockdown repository is not a Git repository: {repo}")
+        raise FileNotFoundError(f"Configured {label} repository is not a Git repository: {repo}")
 
     top = subprocess.run(
         ["git", "-C", str(repo), "rev-parse", "--show-toplevel"],
@@ -414,7 +400,7 @@ def _prepare_lockdown_bundle(cfg: AppConfig, temp_dir: Path) -> tuple[Path, str,
         check=True,
     ).stdout.strip()
     if Path(top).resolve() != repo.resolve():
-        raise ValueError(f"[lockdown].repo must point at the Git repository root: {repo}")
+        raise ValueError(f"Configured {label} repository must point at the Git repository root: {repo}")
 
     status = subprocess.run(
         ["git", "-C", str(repo), "status", "--porcelain"],
@@ -424,8 +410,8 @@ def _prepare_lockdown_bundle(cfg: AppConfig, temp_dir: Path) -> tuple[Path, str,
     ).stdout
     if status.strip():
         raise RuntimeError(
-            f"Lockdown repository has uncommitted/untracked files: {repo}. "
-            "Commit the exact exam state before building images."
+            f"{label.capitalize()} repository has uncommitted/untracked files: {repo}. "
+            "Commit the exact state before building images."
         )
 
     branch = subprocess.run(
@@ -435,12 +421,39 @@ def _prepare_lockdown_bundle(cfg: AppConfig, temp_dir: Path) -> tuple[Path, str,
         check=False,
     ).stdout.strip()
     if not branch:
-        raise RuntimeError(f"Lockdown repository must have a named current branch (not detached HEAD): {repo}")
+        raise RuntimeError(f"{label.capitalize()} repository must have a named current branch: {repo}")
 
     bundle = temp_dir / f"{repo.name}.bundle"
     subprocess.run(["git", "-C", str(repo), "bundle", "create", str(bundle), "--all"], check=True)
-    subprocess.run(["git", "-C", str(repo), "bundle", "verify", str(bundle)], check=True, stdout=subprocess.DEVNULL)
+    subprocess.run(
+        ["git", "-C", str(repo), "bundle", "verify", str(bundle)],
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
     return bundle, repo.name, branch
+
+
+def _prepare_classroom_bundles(
+    cfg: AppConfig, rows: list[CsvRow], temp_dir: Path
+) -> dict[str, tuple[Path, str, str]]:
+    result: dict[str, tuple[Path, str, str]] = {}
+    repos_root = (REPO_ROOT / "repos").resolve()
+    for course in sorted({row.raw["course"].strip() for row in rows}):
+        repo_name = f"MCT_{course}"
+        source = _format_source_path(cfg.course_source, repo=repo_name, course=course)
+        if source.parent != repos_root:
+            raise ValueError(
+                f"[courses].source must resolve to a direct child of repos/: {source}"
+            )
+        result[course] = _prepare_repo_bundle(source, temp_dir, label="classroom")
+    return result
+
+
+def _prepare_lockdown_bundle(cfg: AppConfig, temp_dir: Path) -> tuple[Path, str, str]:
+    repo = cfg.lockdown_repo
+    if repo is None:
+        raise ValueError("[lockdown].repo is empty; configure the local exam repository first")
+    return _prepare_repo_bundle(repo, temp_dir, label="lockdown")
 
 
 def _describe_row(cfg: AppConfig, row: CsvRow) -> None:
@@ -448,15 +461,15 @@ def _describe_row(cfg: AppConfig, row: CsvRow) -> None:
     student = row.raw["forgejo"].strip()
     artifacts = image_artifacts(row.vm, cfg.vm_suffix)
     print(f"{row.vm}:")
-    print(f"  output    : {artifacts.qcow2(cfg.vm_images_dir)}")
+    print(f"  output    : {artifacts.qcow2(cfg.vm_artifacts_dir)}")
     print(f"  identity  : {row.raw['full_name']} <{row.raw['email']}> / {student}")
     print(f"  course    : {course}")
     if cfg.mode == "classroom":
         repo = f"MCT_{course}"
-        github_url = _format_url(cfg.course_public_source, repo=repo, course=course)
+        source = _format_source_path(cfg.course_source, repo=repo, course=course)
         forgejo_url = _format_url(cfg.course_student_origin, repo=repo, course=course)
         print(f"  repository: {repo}")
-        print(f"  source    : {github_url}")
+        print(f"  source    : {source} (local Git repo)")
         print(f"  origin    : {forgejo_url} (configured only; no login/push)")
         print(f"  branch    : {'master' if student == 'donner' else student}")
     else:
@@ -509,11 +522,16 @@ def build_vms(cfg: AppConfig) -> int:
     run_log_dir.mkdir(parents=True, exist_ok=True)
     print(f"Logs: {run_log_dir}")
 
-    cfg.vm_images_dir.mkdir(parents=True, exist_ok=True)
+    cfg.vm_artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-    with tempfile.TemporaryDirectory(prefix="mct-vm-lockdown-") as temp_name:
+    with tempfile.TemporaryDirectory(prefix="mct-vm-bundles-") as temp_name:
+        classroom_bundles: dict[str, tuple[Path, str, str]] = {}
         lockdown_bundle: tuple[Path, str, str] | None = None
-        if cfg.mode == "lockdown":
+        if cfg.mode == "classroom":
+            classroom_bundles = _prepare_classroom_bundles(cfg, rows, Path(temp_name))
+            for course, (_bundle, name, branch) in classroom_bundles.items():
+                print(f"Classroom repository bundle ready: {name} ({branch}, course {course})")
+        else:
             lockdown_bundle = _prepare_lockdown_bundle(cfg, Path(temp_name))
             print(f"Lockdown repository bundle ready: {lockdown_bundle[1]} ({lockdown_bundle[2]})")
 
@@ -526,10 +544,10 @@ def build_vms(cfg: AppConfig) -> int:
             full_name = row.raw["full_name"].strip()
             email = row.raw["email"].strip()
             artifacts = image_artifacts(vm, cfg.vm_suffix)
-            disk = artifacts.qcow2(cfg.vm_images_dir)
-            vars_file = artifacts.vars(cfg.vm_images_dir)
-            building_disk = artifacts.building_qcow2(cfg.vm_images_dir)
-            building_vars = artifacts.building_vars(cfg.vm_images_dir)
+            disk = artifacts.qcow2(cfg.vm_artifacts_dir)
+            vars_file = artifacts.vars(cfg.vm_artifacts_dir)
+            building_disk = artifacts.building_qcow2(cfg.vm_artifacts_dir)
+            building_vars = artifacts.building_vars(cfg.vm_artifacts_dir)
             vm_log = run_log_dir / f"{vm}.log"
             qemu_log = run_log_dir / f"{vm}-qemu.log"
 
@@ -609,13 +627,23 @@ def build_vms(cfg: AppConfig) -> int:
 
                 if cfg.mode == "classroom":
                     repo = f"MCT_{course}"
-                    github_url = _format_url(cfg.course_public_source, repo=repo, course=course)
+                    bundle, bundled_repo, _bundle_branch = classroom_bundles[course]
+                    if bundled_repo != repo:
+                        raise RuntimeError(
+                            f"Configured classroom source for {course} is {bundled_repo!r}, expected {repo!r}"
+                        )
                     forgejo_url = _format_url(cfg.course_student_origin, repo=repo, course=course)
-                    print(f"[{vm}] provisioning {repo} without Forgejo credentials...")
+                    print(f"[{vm}] installing reviewed local classroom repository {repo}...")
+                    _copy_binary_via_ssh(
+                        source=bundle,
+                        remote_path="/tmp/mct-classroom.bundle",
+                        key=cfg.preparation_host_key,
+                        log_path=vm_log,
+                    )
                     _run_logged(
                         remote_script_command(
                             cfg.preparation_host_key,
-                            [course, student, full_name, email, github_url, forgejo_url],
+                            [course, student, full_name, email, "/tmp/mct-classroom.bundle", forgejo_url],
                         ),
                         log_path=vm_log,
                         input_text=_classroom_provision_script(),

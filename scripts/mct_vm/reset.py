@@ -34,8 +34,8 @@ def _known_vms(cfg: AppConfig) -> list[str]:
     # leave an old downstream bunnyXX image behind merely because that student
     # is no longer active.
     pattern = re.compile(r"^(bunny[0-9]{2})(?:-lockdown)?(?:\.|$)")
-    if cfg.vm_images_dir.is_dir():
-        for path in cfg.vm_images_dir.iterdir():
+    if cfg.vm_artifacts_dir.is_dir():
+        for path in cfg.vm_artifacts_dir.iterdir():
             match = pattern.match(path.name)
             if match:
                 result.add(match.group(1))
@@ -58,15 +58,23 @@ def _remove_vm_family(cfg: AppConfig, *, vms: list[str], suffix: str, include_vm
         artifacts = image_artifacts(vm, suffix)
         paths: list[Path] = []
         if include_vm:
-            paths.extend(artifacts.vm_paths(cfg.vm_images_dir))
-        paths.extend(artifacts.rollout_paths(cfg.vm_images_dir))
+            paths.extend(artifacts.vm_paths(cfg.vm_artifacts_dir))
+        paths.extend(artifacts.rollout_paths(cfg.vm_artifacts_dir))
         _remove(paths, dry_run=cfg.run.dry_run)
 
 
 def _remove_all_downstream(cfg: AppConfig) -> None:
-    vms = _known_vms(cfg)
-    for suffix in ("", "-lockdown"):
-        _remove_vm_family(cfg, vms=vms, suffix=suffix, include_vm=True)
+    # Every derived Bunny artifact for one golden lineage lives below one
+    # dedicated directory. Resetting that golden must never touch another
+    # lineage that happens to contain VMs with the same bunnyXX names.
+    tree = cfg.vm_artifacts_dir
+    if not tree.exists():
+        return
+    if cfg.run.dry_run:
+        print(f"Would remove derived VM artifact tree {tree}")
+    else:
+        shutil.rmtree(tree)
+        print(f"Removed derived VM artifact tree {tree}")
 
 
 def reset_rollout_images(cfg: AppConfig) -> int:
@@ -117,7 +125,7 @@ def reset_finalized_golden(cfg: AppConfig) -> int:
 def reset_golden(cfg: AppConfig) -> int:
     ensure_no_live_golden_session()
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    backup_dir = cfg.vm_images_dir / "backups" / "golden" / stamp
+    backup_dir = cfg.vm_images_dir / "backups" / cfg.golden_image.stem / stamp
 
     valuable = [
         cfg.golden_image,
