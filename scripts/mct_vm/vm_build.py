@@ -4,6 +4,7 @@ import csv
 import secrets
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -51,10 +52,12 @@ def _copy_qcow2(src: Path, dst: Path) -> None:
         ["cp", "--reflink=auto", "--sparse=always", str(src), str(dst)],
         check=True,
     )
+    dst.chmod(dst.stat().st_mode | stat.S_IWUSR)
 
 
 def _copy_plain(src: Path, dst: Path) -> None:
     subprocess.run(["cp", "--reflink=auto", str(src), str(dst)], check=True)
+    dst.chmod(dst.stat().st_mode | stat.S_IWUSR)
 
 
 def _append_log(log_path: Path, text: str) -> None:

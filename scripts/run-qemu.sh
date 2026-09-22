@@ -424,6 +424,7 @@ fi
 if [[ ! -e "$VARS_FD" ]]; then
   echo "Creating VARS file: $VARS_FD"
   cp "$OVMF_VARS_TEMPLATE" "$VARS_FD"
+  chmod u+w "$VARS_FD"
 fi
 
 # --- Build QEMU command ---

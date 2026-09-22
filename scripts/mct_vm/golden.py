@@ -39,6 +39,8 @@ def _copy_qcow2(src: Path, dst: Path) -> None:
 
 def _copy_plain(src: Path, dst: Path) -> None:
     subprocess.run(["cp", "--reflink=auto", str(src), str(dst)], check=True)
+    # UEFI VARS files are mutable VM state and must always be writable.
+    dst.chmod(dst.stat().st_mode | stat.S_IWUSR)
 
 
 def _pair_state(image: Path, vars_file: Path) -> str:
