@@ -1,4 +1,4 @@
-{ config, pkgs, lib, ... }:
+{ config, pkgs, lib, forgejoHost, ... }:
 
 {
   # Lockdown must stay small: the normal MCT VM remains the base system.
@@ -6,12 +6,13 @@
   #
   # Intended operation:
   #   systemctl start mct-exam-firewall  -> activate exam lockdown
-  #   systemctl stop  mct-exam-firewall  -> open the network for submission
+  #   systemctl stop  mct-exam-firewall  -> open the network for fallback submission
   #
   # The start path is fail-closed:
   #   - A restrictive base ruleset is installed before DNS is queried.
-  #   - If ai.donner-lab.org cannot be resolved, the VM stays locked down.
-  #   - Restart the service after starting the AI server to add the AI allow rule.
+  #   - AI and Forgejo are resolved independently.
+  #   - If either hostname cannot be resolved, that service stays blocked while
+  #     the rest of the lockdown remains active.
 
   networking.firewall.enable = false;
   networking.nftables.enable = true;
@@ -27,18 +28,19 @@
     wantedBy = [ "multi-user.target" ];
 
     path = with pkgs; [
-      coreutils  # timeout, sleep
+      coreutils  # timeout, sleep, sort
       gawk       # awk
-      getent     # getent ahostsv4
+      getent     # getent ahostsv4/ahostsv6
       nftables   # nft
+      gnused      # sed
     ];
 
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
 
-      # Stopping the service intentionally opens the network again, for example
-      # during the supervised submission phase at the end of the exam.
+      # Stopping the service intentionally opens the network again. This is the
+      # supervised fallback path if Git submission is unavailable.
       ExecStop = "${pkgs.nftables}/bin/nft flush ruleset";
     };
 
@@ -47,7 +49,8 @@
 
       AI_HOST="ai.donner-lab.org"
       AI_PORT="11434"
-
+      FORGEJO_HOST=${lib.escapeShellArg forgejoHost}
+      FORGEJO_PORT="443"
 
       wait_for_dns_config() {
         local attempt=""
@@ -78,7 +81,8 @@
         ' /etc/resolv.conf 2>/dev/null
       }
 
-      apply_base_rules() {
+      apply_rules() {
+        local endpoint_rules="$1"
         local dns_rules=""
 
         dns_rules="$(build_dns_rules)"
@@ -114,12 +118,16 @@
           # Minimal ICMPv6 needed for IPv6 Neighbor Discovery and error handling.
           icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-solicit, packet-too-big, time-exceeded, parameter-problem } accept
 
-          # DNS is required to resolve the AI endpoint.
-          # Allow only the nameservers currently configured by DHCP/resolvconf.
+          # DNS is required only for the configured exam endpoints and normal
+          # resolver behavior. Restrict it to the active nameservers.
           ''${dns_rules}
 
-          # NTP keeps timestamps sane during the exam.
+          # NTP keeps commit and filesystem timestamps sane during the exam.
           udp dport 123 accept
+
+          # Exact IP/port rules generated from the current DNS answers for the
+          # two allowed exam services. No other HTTPS destination is opened.
+          ''${endpoint_rules}
 
           reject
         }
@@ -127,98 +135,84 @@
       NFT_EOF
       }
 
-      apply_ai_rules() {
-        local ai_ip="$1"
-        local dns_rules=""
-
-        dns_rules="$(build_dns_rules)"
-
-        nft flush ruleset
-
-        nft -f - <<NFT_EOF
-      table inet mct_exam {
-        chain input {
-          type filter hook input priority 0; policy drop;
-
-          iifname "lo" accept
-          ct state established,related accept
-
-          # DHCP replies for IPv4 lease renewal.
-          udp sport 67 udp dport 68 accept
-
-          # Minimal ICMPv6 needed for IPv6 Neighbor Discovery and error handling.
-          icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-advert, packet-too-big, time-exceeded, parameter-problem } accept
-
-          reject
-        }
-
-        chain output {
-          type filter hook output priority 0; policy drop;
-
-          oifname "lo" accept
-          ct state established,related accept
-
-          # DHCP requests for IPv4 lease renewal.
-          udp sport 68 udp dport 67 accept
-
-          # Minimal ICMPv6 needed for IPv6 Neighbor Discovery and error handling.
-          icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-solicit, packet-too-big, time-exceeded, parameter-problem } accept
-
-          # DNS is required to resolve the AI endpoint and for normal resolver behavior.
-          # Allow only the nameservers currently configured by DHCP/resolvconf.
-          ''${dns_rules}
-
-          # NTP keeps timestamps sane during the exam.
-          udp dport 123 accept
-
-          # The only exam network service: Ollama/Continue endpoint.
-          ip daddr $ai_ip tcp dport $AI_PORT accept
-
-          reject
-        }
-      }
-      NFT_EOF
-      }
-
-      resolve_ai_ip() {
+      resolve_host() {
+        local host="$1"
         local attempt=""
-        local ai_ip=""
+        local result=""
 
         for attempt in 1 2 3 4 5 6; do
-          ai_ip="$(timeout 8s getent ahostsv4 "$AI_HOST" 2>/dev/null \
-            | awk '$1 ~ /^[0-9]+([.][0-9]+){3}$/ { print $1; exit }' || true)"
+          result="$({
+            timeout 8s getent ahostsv4 "$host" 2>/dev/null \
+              | awk '$1 ~ /^[0-9]+([.][0-9]+){3}$/ { print "4 " $1 }'
+            timeout 8s getent ahostsv6 "$host" 2>/dev/null \
+              | awk '$1 ~ /:/ { print "6 " $1 }'
+          } | sort -u || true)"
 
-          if [ -n "$ai_ip" ]; then
-            printf '%s\n' "$ai_ip"
+          if [ -n "$result" ]; then
+            printf '%s\n' "$result"
             return 0
           fi
 
-          echo "WARN: Could not resolve $AI_HOST (attempt $attempt/6)." >&2
+          echo "WARN: Could not resolve $host (attempt $attempt/6)." >&2
           sleep 5
         done
 
         return 1
       }
 
+      append_endpoint_rules() {
+        local resolved="$1"
+        local port="$2"
+        local rules=""
+        local family=""
+        local address=""
+
+        while read -r family address; do
+          [ -n "$family" ] || continue
+          case "$family" in
+            4) rules="''${rules}          ip daddr $address tcp dport $port accept\n" ;;
+            6) rules="''${rules}          ip6 daddr $address tcp dport $port accept\n" ;;
+            *) echo "WARN: Ignoring unexpected address family '$family'." >&2 ;;
+          esac
+        done <<< "$resolved"
+
+        printf '%b' "$rules"
+      }
+
       # Prefer starting after DHCP/resolvconf has written the active nameservers.
       # If this fails, continue fail-closed with no DNS rules.
       wait_for_dns_config || echo "WARN: No nameserver found in /etc/resolv.conf. DNS will remain blocked." >&2
 
-      # Fail closed: install a restrictive base ruleset before doing anything
-      # that may block, time out, or fail.
-      apply_base_rules
+      # Install the restrictive ruleset before any DNS operation that may block.
+      apply_rules ""
 
-      AI_IP="$(resolve_ai_ip || true)"
+      AI_RESOLVED="$(resolve_host "$AI_HOST" || true)"
+      FORGEJO_RESOLVED="$(resolve_host "$FORGEJO_HOST" || true)"
+      ENDPOINT_RULES=""
 
-      if [ -z "$AI_IP" ]; then
-        echo "WARN: $AI_HOST could not be resolved. Exam firewall remains active without AI access." >&2
-        echo "WARN: Start the AI server and run: sudo systemctl restart mct-exam-firewall" >&2
-        exit 0
+      if [ -n "$AI_RESOLVED" ]; then
+        ENDPOINT_RULES="''${ENDPOINT_RULES}$(append_endpoint_rules "$AI_RESOLVED" "$AI_PORT")"
+      else
+        echo "WARN: $AI_HOST unresolved; Ollama remains blocked." >&2
       fi
 
-      apply_ai_rules "$AI_IP"
+      if [ -n "$FORGEJO_RESOLVED" ]; then
+        ENDPOINT_RULES="''${ENDPOINT_RULES}$(append_endpoint_rules "$FORGEJO_RESOLVED" "$FORGEJO_PORT")"
+      else
+        echo "WARN: $FORGEJO_HOST unresolved; Forgejo remains blocked." >&2
+      fi
 
-      echo "MCT exam firewall active: $AI_HOST = $AI_IP, allowed TCP port $AI_PORT"
+      apply_rules "$ENDPOINT_RULES"
+
+      echo "MCT exam firewall active."
+      if [ -n "$AI_RESOLVED" ]; then
+        echo "  allowed: $AI_HOST:$AI_PORT"
+        printf '%s\n' "$AI_RESOLVED" | sed 's/^/           /'
+      fi
+      if [ -n "$FORGEJO_RESOLVED" ]; then
+        echo "  allowed: $FORGEJO_HOST:$FORGEJO_PORT"
+        printf '%s\n' "$FORGEJO_RESOLVED" | sed 's/^/           /'
+      fi
     '';
   };
 

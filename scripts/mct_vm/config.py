@@ -63,6 +63,8 @@ class AppConfig:
     optimize_image_size: bool
     course_public_source: str
     course_student_origin: str
+    forgejo_host: str
+    forgejo_exam_owner: str
     lockdown_repo: Path | None
     rollout_prepared_images_dir: Path
     rollout_staging_dir: Path | None
@@ -186,7 +188,7 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
     with path.open("rb") as f:
         data = tomllib.load(f)
 
-    allowed_sections = {"workflow", "paths", "golden_image", "provisioning", "images", "courses", "lockdown", "rollout", "run"}
+    allowed_sections = {"workflow", "paths", "golden_image", "provisioning", "images", "courses", "forgejo", "lockdown", "rollout", "run"}
     unknown_sections = sorted(set(data) - allowed_sections)
     if unknown_sections:
         raise ValueError(f"config.toml: unknown section(s): {', '.join(unknown_sections)}")
@@ -201,6 +203,7 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
     provisioning = _table(data, "provisioning", {"preparation_host_key"})
     images = _table(data, "images", {"optimize_image_size"})
     courses = _table(data, "courses", {"public_source", "student_origin"})
+    forgejo = _table(data, "forgejo", {"host", "exam_owner"})
     lockdown = _table(data, "lockdown", {"repo"})
     rollout = _table(
         data,
@@ -256,6 +259,8 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
         optimize_image_size=_bool(images, "optimize_image_size", "images", True),
         course_public_source=_required_str(courses, "public_source", "courses"),
         course_student_origin=_required_str(courses, "student_origin", "courses"),
+        forgejo_host=_required_str(forgejo, "host", "forgejo"),
+        forgejo_exam_owner=_required_str(forgejo, "exam_owner", "forgejo"),
         lockdown_repo=_path(lockdown_repo_raw) if lockdown_repo_raw else None,
         rollout_prepared_images_dir=_path(
             _required_str(rollout, "prepared_images_dir", "rollout")

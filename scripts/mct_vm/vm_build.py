@@ -253,6 +253,7 @@ full_name=$3
 email=$4
 course=$5
 student=$6
+forgejo_url=$7
 bundle=/tmp/mct-exam.bundle
 repo_dir="$HOME/$repo_name"
 fail() { echo "ERROR: $*" >&2; exit 1; }
@@ -265,11 +266,13 @@ fail() { echo "ERROR: $*" >&2; exit 1; }
 rm -rf -- "$repo_dir"
 git clone -b "$branch" "$bundle" "$repo_dir"
 git -C "$repo_dir" remote remove origin 2>/dev/null || true
+git -C "$repo_dir" remote add origin "$forgejo_url"
 rm -f -- "$bundle"
 [[ -d "$repo_dir/.git" ]] || fail "exam repository clone failed"
 [[ "$(git -C "$repo_dir" branch --show-current)" == "$branch" ]] || fail "wrong exam repository branch"
-[[ -z "$(git -C "$repo_dir" remote)" ]] || fail "exam repository must not contain a remote in the finished image"
-echo "Exam repository installed: $repo_dir ($branch)"
+[[ "$(git -C "$repo_dir" remote)" == "origin" ]] || fail "exam repository must contain only origin"
+[[ "$(git -C "$repo_dir" remote get-url origin)" == "$forgejo_url" ]] || fail "wrong exam origin URL"
+echo "Exam repository installed: $repo_dir ($branch) -> $forgejo_url"
 '''
 
 
@@ -366,7 +369,10 @@ def _describe_row(cfg: AppConfig, row: CsvRow) -> None:
         print(f"  origin    : {forgejo_url} (configured only; no login/push)")
         print(f"  branch    : {'master' if student == 'donner' else student}")
     else:
+        exam = cfg.lockdown_repo.name if cfg.lockdown_repo else "<unconfigured>"
+        exam_remote = f"https://{cfg.forgejo_host}/{cfg.forgejo_exam_owner}/{exam}_{student}.git"
         print(f"  repository: {cfg.lockdown_repo or '(not configured)'} (local Git repo)")
+        print(f"  origin    : {exam_remote} (configured only; no login/push)")
         print(f"  final Nix : .#{row.vm}-lockdown")
 
 
@@ -551,10 +557,14 @@ def build_vms(cfg: AppConfig) -> int:
                         key=cfg.preparation_host_key,
                         log_path=vm_log,
                     )
+                    exam_remote = (
+                        f"https://{cfg.forgejo_host}/{cfg.forgejo_exam_owner}/"
+                        f"{repo_name}_{student}.git"
+                    )
                     _run_logged(
                         remote_script_command(
                             cfg.preparation_host_key,
-                            [repo_name, repo_branch, full_name, email, course, student],
+                            [repo_name, repo_branch, full_name, email, course, student, exam_remote],
                         ),
                         log_path=vm_log,
                         input_text=_lockdown_repo_script(),

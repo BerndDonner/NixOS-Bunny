@@ -15,6 +15,9 @@
 
       username = "student";
 
+      toolConfig = builtins.fromTOML (builtins.readFile ./scripts/config/config.toml);
+      forgejoHost = toolConfig.forgejo.host;
+
       # The host files are generated from scripts/config/rollout.csv. Discover exactly the
       # active bunnyXX definitions instead of maintaining a second VM list here.
       # bunny.nix remains the generic/golden configuration.
@@ -36,7 +39,7 @@
         in nixpkgs.lib.nixosSystem {
           inherit system;
           specialArgs = {
-            inherit baseHost lockdown;
+            inherit baseHost lockdown forgejoHost;
           };
           modules = [
             home-manager.nixosModules.home-manager

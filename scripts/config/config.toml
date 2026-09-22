@@ -68,6 +68,11 @@ public_source = "https://github.com/BerndDonner/{repo}.git"
 # image building; student branches are first published later with git pub.
 student_origin = "https://forgejo.meisterk.de/Microcontrollertechnik/{repo}.git"
 
+[forgejo]
+# Forgejo endpoint used for per-student exam repositories. Students use HTTPS only.
+host = "forgejo.meisterk.de"
+exam_owner = "donner"
+
 [lockdown]
 # Local, independent Git repository copied into lockdown images via git bundle.
 # Keep repos/ ignored by the outer NixOS-Bunny repository. The exact exam state

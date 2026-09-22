@@ -305,8 +305,10 @@ repo = "repos/MCT-Schulaufgabe1"
 The configured exam repo must itself be a clean Git repository with a named
 current branch. `build-vms` creates a Git bundle locally and copies that bundle
 into each exam VM; no public Git server and no Forgejo credentials are needed.
-The finished exam repository intentionally has no remote, so later submission
-can remain either ZIP/Teams or gain a separate simple push workflow.
+The finished exam repository receives exactly one HTTPS `origin`, derived from
+the active lockdown repository name plus the student's Forgejo login. No
+credentials are provisioned into the image; KDE/KWallet handles the student's
+normal HTTPS credentials when the first push is made.
 
 Lockdown provisioning first boots the ordinary host-specific generation so
 identity and unrestricted provisioning work normally. The exam repository is
@@ -321,6 +323,15 @@ passwordless wheel access and could stop `mct-exam-firewall`. This is documented
 in `doc/TODO` for hardening before the second exam.
 
 ### Create per-student Forgejo exam repositories
+
+Forgejo host and exam owner are configured once in the same `config.toml` used
+by `mct-vm` and `forgejo-exam`:
+
+```toml
+[forgejo]
+host = "forgejo.meisterk.de"
+exam_owner = "donner"
+```
 
 The Forgejo repository name is derived from the local lockdown repository name.
 If `[lockdown].repo` is:
@@ -357,10 +368,34 @@ python3 scripts/forgejo-exam.py create-repos
 The API token is read from `FORGEJO_TOKEN` when set, otherwise it is requested
 without echoing.  This step is deliberately idempotent: an existing private
 repository is kept, while an existing non-private repository causes an error.
-New repositories are **private and empty**.  This command does not grant student
-access and does not push exam content.  The lockdown VM already receives the
-committed local exam repository via Git bundle; collaborator grant/revoke and
-the HTTPS `origin` are separate steps of the exam workflow.
+New repositories are **private and empty**. This command does not grant student
+access and does not push exam content. The lockdown VM already receives the
+committed local exam repository via Git bundle and gets the matching personal
+HTTPS `origin` during `build-vms`.
+
+Immediately before the exam, grant every student write access only to their own
+personal exam repository:
+
+```bash
+python3 scripts/forgejo-exam.py grant --dry-run
+python3 scripts/forgejo-exam.py grant
+```
+
+After the exam, remove those collaborator permissions again:
+
+```bash
+python3 scripts/forgejo-exam.py revoke --dry-run
+python3 scripts/forgejo-exam.py revoke
+```
+
+All three Forgejo commands use the same `[lockdown].repo`, `[forgejo]` settings
+and `rollout-lockdown.csv`; there is no separate exam-name mapping to keep in
+sync.
+
+The lockdown firewall permits DNS/NTP plus only the configured exam services:
+`ai.donner-lab.org:11434` and `${forgejo.host}:443`. The service resolves all
+current IPv4/IPv6 addresses at startup and installs exact address/port rules; a
+failed resolution leaves that endpoint blocked rather than opening the network.
 
 ### Build rollout images
 

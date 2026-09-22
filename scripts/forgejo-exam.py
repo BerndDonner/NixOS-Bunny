@@ -29,8 +29,6 @@ from urllib.request import Request, urlopen
 from mct_vm.config import CONFIG_DIR, REPO_ROOT, load_config
 from mct_vm.csv_model import CsvRow, read_rollout_csv, require_fields
 
-DEFAULT_FORGEJO_URL = "https://forgejo.meisterk.de"
-DEFAULT_OWNER = "donner"
 LOCKDOWN_CSV = CONFIG_DIR / "rollout-lockdown.csv"
 
 
@@ -101,6 +99,30 @@ class ForgejoClient:
             if exc.status == 404:
                 return None
             raise
+
+    def add_collaborator(self, owner: str, repo: str, username: str) -> None:
+        path = (
+            f"/api/v1/repos/{quote(owner, safe='')}/{quote(repo, safe='')}"
+            f"/collaborators/{quote(username, safe='')}"
+        )
+        status, _ = self._request("PUT", path, {"permission": "write"})
+        if status not in {201, 204}:
+            raise ForgejoError(status, f"Unexpected response while granting {username} access to {owner}/{repo}")
+
+    def remove_collaborator(self, owner: str, repo: str, username: str) -> bool:
+        path = (
+            f"/api/v1/repos/{quote(owner, safe='')}/{quote(repo, safe='')}"
+            f"/collaborators/{quote(username, safe='')}"
+        )
+        try:
+            status, _ = self._request("DELETE", path)
+        except ForgejoError as exc:
+            if exc.status == 404:
+                return False
+            raise
+        if status != 204:
+            raise ForgejoError(status, f"Unexpected response while revoking {username} access to {owner}/{repo}")
+        return True
 
     def create_repo(self, *, name: str, description: str) -> dict[str, Any]:
         body = {
@@ -195,7 +217,28 @@ def _repo_name(exam: str, login: str) -> str:
     return f"{exam}_{login}"
 
 
-def create_repos(*, dry_run: bool, owner: str, base_url: str) -> int:
+def _forgejo_settings() -> tuple[str, str]:
+    cfg = load_config()
+    return f"https://{cfg.forgejo_host}", cfg.forgejo_exam_owner
+
+
+def _checked_client(base_url: str, owner: str) -> ForgejoClient:
+    token = get_token()
+    if not token:
+        raise ValueError("Forgejo token is empty")
+    client = ForgejoClient(base_url, token)
+    current = client.current_user()
+    login = str(current.get("login") or current.get("username") or "").strip()
+    if login.casefold() != owner.casefold():
+        raise RuntimeError(
+            f"Forgejo token belongs to {login or '<unknown>'}, but exam repositories "
+            f"are managed below {owner}. Use the {owner} token."
+        )
+    return client
+
+
+def create_repos(*, dry_run: bool) -> int:
+    base_url, owner = _forgejo_settings()
     exam_repo = _exam_repo()
     exam = exam_repo.name
     students, skipped_owner = _student_rows(owner)
@@ -218,18 +261,7 @@ def create_repos(*, dry_run: bool, owner: str, base_url: str) -> int:
             print(f"         {base_url.rstrip('/')}/{owner}/{name}.git")
         return 0
 
-    token = get_token()
-    if not token:
-        raise ValueError("Forgejo token is empty")
-    client = ForgejoClient(base_url, token)
-
-    current = client.current_user()
-    login = str(current.get("login") or current.get("username") or "").strip()
-    if login.casefold() != owner.casefold():
-        raise RuntimeError(
-            f"Forgejo token belongs to {login or '<unknown>'}, but exam repositories "
-            f"must be created below {owner}. Use the {owner} token or pass --owner explicitly."
-        )
+    client = _checked_client(base_url, owner)
 
     created = 0
     existing = 0
@@ -261,6 +293,68 @@ def create_repos(*, dry_run: bool, owner: str, base_url: str) -> int:
     return 0
 
 
+def change_access(*, action: str, dry_run: bool) -> int:
+    base_url, owner = _forgejo_settings()
+    exam_repo = _exam_repo()
+    exam = exam_repo.name
+    students, skipped_owner = _student_rows(owner)
+
+    print(f"Exam repository : {exam_repo}")
+    print(f"Exam designation: {exam}")
+    print(f"Rollout mapping  : {LOCKDOWN_CSV}")
+    print(f"Forgejo          : {base_url}")
+    print(f"Owner            : {owner}")
+    print(f"Action           : {action}")
+    print(f"Student repos    : {len(students)}")
+    if skipped_owner:
+        print(f"Teacher rows     : {skipped_owner} skipped ({owner})")
+
+    if dry_run:
+        print("\nDry run; no Forgejo requests will be made:")
+        for row in students:
+            login = row.raw["forgejo"].strip()
+            name = _repo_name(exam, login)
+            verb = "GRANT write" if action == "grant" else "REVOKE"
+            print(f"  {verb:11} {login} -> {owner}/{name}")
+        return 0
+
+    client = _checked_client(base_url, owner)
+    changed = 0
+    already = 0
+    for row in students:
+        login = row.raw["forgejo"].strip()
+        name = _repo_name(exam, login)
+        repo = client.get_repo(owner, name)
+        if repo is None:
+            raise RuntimeError(
+                f"Missing exam repository {owner}/{name}; run create-repos first"
+            )
+        if not bool(repo.get("private", False)):
+            raise RuntimeError(
+                f"Existing repository {owner}/{name} is not private; refusing to continue"
+            )
+
+        if action == "grant":
+            print(f"==> grant write: {login} -> {owner}/{name}")
+            client.add_collaborator(owner, name, login)
+            changed += 1
+        elif action == "revoke":
+            print(f"==> revoke: {login} -> {owner}/{name}")
+            if client.remove_collaborator(owner, name, login):
+                changed += 1
+            else:
+                print("    already absent")
+                already += 1
+        else:
+            raise AssertionError(action)
+
+    if action == "grant":
+        print(f"\nDone: write access granted/confirmed for {changed} students.")
+    else:
+        print(f"\nDone: {changed} revoked, {already} already absent.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Manage per-student Forgejo repositories for lockdown exams."
@@ -272,28 +366,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="Create one private empty repository per student in rollout-lockdown.csv.",
     )
     create.add_argument("--dry-run", action="store_true")
-    create.add_argument(
-        "--owner",
-        default=DEFAULT_OWNER,
-        help=f"Forgejo owner for exam repositories (default: {DEFAULT_OWNER}).",
-    )
-    create.add_argument(
-        "--forgejo-url",
-        default=os.environ.get("FORGEJO_URL", DEFAULT_FORGEJO_URL),
-        help=f"Forgejo base URL (default: {DEFAULT_FORGEJO_URL}).",
-    )
-    return parser
 
+    grant = sub.add_parser(
+        "grant",
+        help="Grant each student write access only to their personal exam repository.",
+    )
+    grant.add_argument("--dry-run", action="store_true")
+
+    revoke = sub.add_parser(
+        "revoke",
+        help="Remove each student's access to their personal exam repository.",
+    )
+    revoke.add_argument("--dry-run", action="store_true")
+    return parser
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.command == "create-repos":
-            return create_repos(
-                dry_run=args.dry_run,
-                owner=args.owner.strip(),
-                base_url=args.forgejo_url.strip(),
-            )
+            return create_repos(dry_run=args.dry_run)
+        if args.command in {"grant", "revoke"}:
+            return change_access(action=args.command, dry_run=args.dry_run)
         raise AssertionError(f"Unhandled command: {args.command}")
     except (FileNotFoundError, ValueError, RuntimeError, ForgejoError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
