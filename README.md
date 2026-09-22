@@ -265,7 +265,7 @@ golden-26.05.qcow2
         | COPY
         v
 golden-26.05.finalizing.qcow2
-        | cleanup + Chrome policy + fstrim + clean shutdown
+        | cleanup + Chromium policy + fstrim + clean shutdown
         v
 golden-26.05.finalized.qcow2
 ```

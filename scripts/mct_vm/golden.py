@@ -175,9 +175,9 @@ jq -n --arg url "$url" '{
     RestoreOnStartup: 4,
     RestoreOnStartupURLs: [$url]
 }' > "$policy_tmp"
-sudo install -Dm0644 "$policy_tmp" /etc/opt/chrome/policies/managed/mct-classroom.json
+sudo install -Dm0644 "$policy_tmp" /etc/chromium/policies/managed/mct-classroom.json
 rm -f "$policy_tmp"
-echo "Chrome start page: $url"
+echo "Chromium start page: $url"
 '''
     proc = subprocess.run(
         [*ssh_base(key), f"bash -s -- {shlex.quote(guest_path)}"],
@@ -186,7 +186,7 @@ echo "Chrome start page: $url"
         check=False,
     )
     if proc.returncode != 0:
-        raise RuntimeError(f"Could not configure Chrome start page: {guest_path}")
+        raise RuntimeError(f"Could not configure Chromium start page: {guest_path}")
 
 
 def _install_final_continue_config(cfg: AppConfig) -> None:
@@ -222,15 +222,15 @@ def _install_final_continue_config(cfg: AppConfig) -> None:
 def _clean_manual_user_traces(cfg: AppConfig) -> None:
     script = r'''set -euo pipefail
 
-if pgrep -u "$USER" -f '(google-chrome|google-chrome-stable|/chrome)( |$)' >/dev/null 2>&1; then
-    echo "ERROR: Chrome is running; refusing to clean a live profile" >&2
+if pgrep -u "$USER" -f '(chromium|/chromium)( |$)' >/dev/null 2>&1; then
+    echo "ERROR: Chromium is running; refusing to clean a live profile" >&2
     exit 1
 fi
 
 rm -f -- "$HOME/.bash_history"
 sudo rm -f -- /root/.bash_history
 
-profile="$HOME/.config/google-chrome/Default"
+profile="$HOME/.config/chromium/Default"
 if [[ -d "$profile" ]]; then
     rm -f -- \
         "$profile/History" "$profile/History-journal" \
@@ -251,8 +251,8 @@ if [[ -d "$profile" ]]; then
         "$profile/GPUCache"
 fi
 
-rm -rf -- "$HOME/.cache/google-chrome" "$HOME/.cache/google-chrome-stable"
-echo "Manual traces cleaned; Chrome preferences/bookmarks/extensions preserved."
+rm -rf -- "$HOME/.cache/chromium"
+echo "Manual traces cleaned; Chromium preferences/bookmarks/extensions preserved."
 '''
     proc = subprocess.run(
         [*ssh_base(cfg.preparation_host_key), "bash -s"],
@@ -261,7 +261,7 @@ echo "Manual traces cleaned; Chrome preferences/bookmarks/extensions preserved."
         check=False,
     )
     if proc.returncode != 0:
-        raise RuntimeError("Could not clean Bash/Chrome traces from the golden image")
+        raise RuntimeError("Could not clean Bash/Chromium traces from the golden image")
 
 
 def _optimize_image_size(cfg: AppConfig) -> None:
@@ -454,7 +454,7 @@ def finalize_golden(cfg: AppConfig) -> int:
     print(f"  protected manual image: {cfg.golden_image}")
     print(f"  working copy          : {cfg.golden_finalizing_image}")
     print(f"  final output          : {cfg.golden_finalized_image}")
-    print("  manual trace cleanup  : Bash history + sensitive Chrome state")
+    print("  manual trace cleanup  : Bash history + sensitive Chromium state")
     print(f"  browser start page    : {cfg.browser_start_page}")
     print(f"  optimize image size   : {cfg.optimize_image_size}")
 

@@ -226,7 +226,7 @@ in {
 
   # Provide the installer script and a one-shot user service (disabled by default).
   environment.systemPackages = with pkgs; [
-    google-chrome
+    chromium
     vscode-fhs
 
     # KDE apps

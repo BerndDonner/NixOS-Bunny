@@ -3,7 +3,7 @@
 Nach `./scripts/mct-vm.py build-golden` die folgenden Punkte in der sichtbar
 laufenden `golden-*.building.qcow2` abarbeiten:
 
-- Google Chrome starten und Datenschutz-/Suchmaschinen-Einstellungen setzen.
+- Chromium starten und Datenschutz-/Suchmaschinen-Einstellungen setzen.
 - In VS Code **Arduino Maker Workshop** und **Continue** installieren.
 - Arduino AVR Platform installieren.
 - Vorbereiteten Sketch kompilieren und benötigte Zusatz-Plugins akzeptieren.

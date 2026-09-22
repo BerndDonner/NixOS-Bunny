@@ -47,7 +47,7 @@ file = "golden-26.05.qcow2"
 # Optional tree overlaid onto /home/student during build-golden.
 student_home_content = "~/VirtualMashines/bunny-files-to-copy"
 
-# Page Chrome opens in the finalized golden image. Installed as managed policy
+# Page Chromium opens in the finalized golden image. Installed as managed policy
 # only on the .finalizing copy, never on the protected manual golden itself.
 browser_start_page = "~/reference/www.arduino.cc/en/Reference/HomePage.html"
 

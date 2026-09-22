@@ -205,7 +205,7 @@ fail() { echo "ERROR: $*" >&2; exit 1; }
 [[ "$(git config --global --get mct.course 2>/dev/null || true)" == "$course" ]] || fail "wrong mct.course"
 [[ -d "$HOME/reference" ]] || fail "offline documentation directory $HOME/reference is missing"
 command -v code >/dev/null || fail "VS Code command 'code' is missing"
-command -v google-chrome >/dev/null || command -v google-chrome-stable >/dev/null || fail "Google Chrome command is missing"
+command -v chromium >/dev/null || fail "Chromium command is missing"
 [[ -f "$HOME/.continue/config.yaml" ]] || fail "Continue configuration is missing; golden preparation/finalization was not completed"
 
 [[ -d "$repo_dir/.git" ]] || fail "$repo_dir is not a Git repository"
