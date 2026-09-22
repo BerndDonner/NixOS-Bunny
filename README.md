@@ -320,6 +320,48 @@ The known first-exam limitation remains deliberate: `student` still has
 passwordless wheel access and could stop `mct-exam-firewall`. This is documented
 in `doc/TODO` for hardening before the second exam.
 
+### Create per-student Forgejo exam repositories
+
+The Forgejo repository name is derived from the local lockdown repository name.
+If `[lockdown].repo` is:
+
+```toml
+[lockdown]
+repo = "repos/MCT-Schulaufgabe1"
+```
+
+and a row in `scripts/config/rollout-lockdown.csv` contains Forgejo login
+`mayr`, the personal remote repository is:
+
+```text
+https://forgejo.meisterk.de/donner/MCT-Schulaufgabe1_mayr.git
+```
+
+`rollout-lockdown.csv` has the **same columns** as `rollout.csv`, but is a
+separate mapping because exam seating can use different `pcname` values.  The
+exam script reads only active rows from the lockdown CSV; a teacher row whose
+Forgejo login equals the repository owner (`donner`) is skipped.
+
+Preview the planned repositories first:
+
+```bash
+python3 scripts/forgejo-exam.py create-repos --dry-run
+```
+
+Then create missing repositories:
+
+```bash
+python3 scripts/forgejo-exam.py create-repos
+```
+
+The API token is read from `FORGEJO_TOKEN` when set, otherwise it is requested
+without echoing.  This step is deliberately idempotent: an existing private
+repository is kept, while an existing non-private repository causes an error.
+New repositories are **private and empty**.  This command does not grant student
+access and does not push exam content.  The lockdown VM already receives the
+committed local exam repository via Git bundle; collaborator grant/revoke and
+the HTTPS `origin` are separate steps of the exam workflow.
+
 ### Build rollout images
 
 ```bash
