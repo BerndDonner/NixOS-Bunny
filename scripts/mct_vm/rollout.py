@@ -57,7 +57,7 @@ import time
 from pathlib import Path
 from typing import Optional, Dict, List
 
-from .artifacts import image_artifacts, sha256_file, verify_checksum_sidecar
+from .artifacts import image_artifacts, read_checksum_sidecar, sha256_file
 from .config import AppConfig, SCRIPTS_ROOT
 from .csv_model import CsvRow, read_rollout_csv, require_fields
 from .selection import select_rows
@@ -1052,10 +1052,30 @@ def rollout_images(cfg: AppConfig) -> int:
             artifacts = image_artifacts(row.vm, cfg.vm_suffix)
             local_image = artifacts.compressed(cfg.rollout_prepared_images_dir)
             local_sidecar = artifacts.checksum(cfg.rollout_prepared_images_dir)
-            sha = verify_checksum_sidecar(local_image, local_sidecar)
-            selected.append((row, pc, artifacts.stem, sha))
 
-        log("INFO", f"Local preflight OK: {len(selected)} image(s) + checksum sidecars verified", logfile=logfile)
+            # Do not hash the complete image here. The prepared images may live
+            # on a network share, so doing so would read every multi-GB image
+            # over SMB before rollout even starts. The image itself is checked
+            # for existence and the sidecar is parsed/validated here; after the
+            # copy, deploy_one() verifies the target file against this SHA256.
+            if not local_image.is_file():
+                raise FileNotFoundError(f"Missing image: {local_image}")
+            sha = read_checksum_sidecar(
+                local_sidecar,
+                expected_filename=local_image.name,
+            )
+            selected.append((row, pc, artifacts.stem, sha))
+            log(
+                "INFO",
+                f"PREFLIGHT {artifacts.stem}: image present, checksum sidecar valid",
+                logfile=logfile,
+            )
+
+        log(
+            "INFO",
+            f"Local preflight OK: {len(selected)} image(s) present + checksum sidecars valid",
+            logfile=logfile,
+        )
 
         for row, pc, deploy_vm, sha in selected:
             artifacts = image_artifacts(row.vm, cfg.vm_suffix)
