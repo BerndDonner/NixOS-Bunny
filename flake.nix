@@ -10,7 +10,8 @@
 
   outputs = { self, nixpkgs, home-manager }:
     let
-      system = "x86_64-linux";
+      x86System = "x86_64-linux";
+      armSystem = "aarch64-linux";
       lib = nixpkgs.lib;
 
       username = "student";
@@ -34,7 +35,7 @@
         let p = ./hosts + ("/" + host + ".nix");
         in if builtins.pathExists p then p else ./hosts/default.nix;
 
-      mkHost = { host, baseHost ? host, lockdown ? false }:
+      mkHost = { host, baseHost ? host, lockdown ? false, system ? x86System }:
         let h = import (hostFileFor baseHost);
         in nixpkgs.lib.nixosSystem {
           inherit system;
@@ -83,16 +84,25 @@
           };
         }) ids);
 
-      nixosConfs = normalConfs // lockdownConfs;
+      armConfs = {
+        bunny-arm = mkHost {
+          host = "bunny-arm";
+          baseHost = "bunny";
+          system = armSystem;
+        };
+      };
+
+      nixosConfs = normalConfs // lockdownConfs // armConfs;
 
       bunnySystem = nixosConfs.bunny;
       bunnyLockdownSystem = nixosConfs."bunny-lockdown";
+      bunnyArmSystem = nixosConfs."bunny-arm";
 
       packageHosts = ids ++ (map (host: "${host}-lockdown") ids);
     in {
       nixosConfigurations = nixosConfs;
 
-      packages.${system} = let
+      packages.${x86System} = let
         perHost =
           builtins.listToAttrs (map (host: {
             name = "${host}-qcow2";
@@ -108,5 +118,11 @@
           # Lockdown golden image shortcut
           qcow2-lockdown = bunnyLockdownSystem.config.system.build.images."qemu-efi";
         };
+
+      # Generic ARM64 golden image for Apple-Silicon/VMware-Fusion testing.
+      packages.${armSystem} = {
+        qcow2 = bunnyArmSystem.config.system.build.images."qemu-efi";
+        default = bunnyArmSystem.config.system.build.images."qemu-efi";
+      };
     };
 }

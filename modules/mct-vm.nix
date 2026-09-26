@@ -2,6 +2,7 @@
 
 let
   username = "student";
+  isX86 = pkgs.stdenv.hostPlatform.isx86;
 in {
   imports = [ ];
 
@@ -131,33 +132,42 @@ in {
 
   # --- Initrd: storage/network drivers for portable VM images (QEMU + VMware + Hyper-V)
   # Some image builders don't auto-include the right modules. Ensure root disk appears early.
-  boot.initrd.availableKernelModules = lib.mkBefore [
-    # QEMU virtio
-    "virtio" "virtio_pci" "virtio_ring"
-    "virtio_blk" "virtio_scsi"
-    # SATA/AHCI/ATA fallback
-    "ahci" "ata_piix"
-    # Generic SCSI / disk
-    "sd_mod" "sr_mod" "scsi_mod"
-    # NVMe (harmless, useful on some setups)
-    "nvme"
-    # VMware storage (if image later runs there)
-    "vmw_pvscsi"
-  ];
+  boot.initrd.availableKernelModules = lib.mkBefore (
+    [
+      # QEMU virtio
+      "virtio" "virtio_pci" "virtio_ring"
+      "virtio_blk" "virtio_scsi"
+      # SATA/AHCI fallback
+      "ahci"
+      # Generic SCSI / disk
+      "sd_mod" "sr_mod" "scsi_mod"
+      # NVMe (used by VMware Fusion on Apple Silicon as well)
+      "nvme"
+    ]
+    ++ lib.optionals isX86 [
+      # Legacy x86 ATA + VMware paravirtual SCSI
+      "ata_piix" "vmw_pvscsi"
+    ]
+  );
 
   # Load the important ones early (keeps /dev/disk/by-label/* working reliably)
-  boot.initrd.kernelModules = lib.mkBefore [
-    "virtio_pci" "virtio_blk" "virtio_scsi"
-    "ahci" "ata_piix"
-    "vmw_pvscsi"
-  ];
+  boot.initrd.kernelModules = lib.mkBefore (
+    [
+      "virtio_pci" "virtio_blk" "virtio_scsi"
+      "ahci"
+    ]
+    ++ lib.optionals isX86 [
+      "ata_piix" "vmw_pvscsi"
+    ]
+  );
 
   boot.initrd.systemd.enable = true;
 
   # --- Desktop: KDE Plasma (Wayland default; X11 selectable)
   services.xserver.enable = true;
   # @chatGPT remind Bernd to test if this is really necessary
-  services.xserver.videoDrivers = [ "vmware" "modesetting" "fbdev" ];
+  services.xserver.videoDrivers =
+    lib.optionals isX86 [ "vmware" ] ++ [ "modesetting" "fbdev" ];
 
   services.xserver.xkb = {
     layout = "de";
@@ -225,7 +235,7 @@ in {
   };
 
   # Provide the installer script and a one-shot user service (disabled by default).
-  environment.systemPackages = with pkgs; [
+  environment.systemPackages = (with pkgs; [
     chromium
     vscode-fhs
 
@@ -256,6 +266,9 @@ in {
     # VMware; vhci_hcd is loaded only by the Hyper-V-conditioned systemd unit.
     config.boot.kernelPackages.usbip
 
+  ]) ++ lib.optionals (!isX86) [
+    # Native Arduino CLI for the experimental ARM64 Bunny.
+    pkgs.arduino-cli
   ];
 
   # Bash: ls colors + LS_COLORS via dircolors
