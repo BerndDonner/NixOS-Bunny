@@ -6,9 +6,12 @@
 
     home-manager.url = "github:nix-community/home-manager/release-26.05";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
+
+    disko.url = "github:nix-community/disko/latest";
+    disko.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = { self, nixpkgs, home-manager }:
+  outputs = { self, nixpkgs, home-manager, disko }:
     let
       x86System = "x86_64-linux";
       armSystem = "aarch64-linux";
@@ -41,10 +44,16 @@
           inherit system;
           specialArgs = {
             inherit baseHost lockdown forgejoHost;
+          } // lib.optionalAttrs (system == armSystem) {
+            armImageBuilderPkgs = nixpkgs.legacyPackages.${x86System};
           };
           modules = [
             home-manager.nixosModules.home-manager
             ./modules/mct-vm.nix
+          ]
+          ++ lib.optionals (system == armSystem) [
+            disko.nixosModules.disko
+            ./modules/arm-image.nix
           ]
           ++ lib.optionals lockdown [
             ./profiles/lockdown.nix
@@ -98,19 +107,6 @@
       bunnyLockdownSystem = nixosConfs."bunny-lockdown";
       bunnyArmSystem = nixosConfs."bunny-arm";
 
-      # The stock qemu-efi image builder uses make-disk-image's 1024 MiB
-      # default.  That is too small for the desktop ARM image while nixos-install
-      # populates the image under emulation, so give only the ARM builder more RAM.
-      bunnyArmQcow2 = import "${nixpkgs}/nixos/lib/make-disk-image.nix" {
-        inherit lib;
-        pkgs = bunnyArmSystem.pkgs;
-        config = bunnyArmSystem.config;
-        format = "qcow2";
-        partitionTableType = "efi";
-        baseName = "bunny-arm";
-        memSize = 4096;
-      };
-
       packageHosts = ids ++ (map (host: "${host}-lockdown") ids);
     in {
       nixosConfigurations = nixosConfs;
@@ -134,8 +130,8 @@
 
       # Generic ARM64 golden image for Apple-Silicon/VMware-Fusion testing.
       packages.${armSystem} = {
-        qcow2 = bunnyArmQcow2;
-        default = bunnyArmQcow2;
+        qcow2 = bunnyArmSystem.config.system.build.diskoImages;
+        default = bunnyArmSystem.config.system.build.diskoImages;
       };
     };
 }
