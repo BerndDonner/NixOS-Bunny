@@ -98,6 +98,19 @@
       bunnyLockdownSystem = nixosConfs."bunny-lockdown";
       bunnyArmSystem = nixosConfs."bunny-arm";
 
+      # The stock qemu-efi image builder uses make-disk-image's 1024 MiB
+      # default.  That is too small for the desktop ARM image while nixos-install
+      # populates the image under emulation, so give only the ARM builder more RAM.
+      bunnyArmQcow2 = import "${nixpkgs}/nixos/lib/make-disk-image.nix" {
+        inherit lib;
+        pkgs = bunnyArmSystem.pkgs;
+        config = bunnyArmSystem.config;
+        format = "qcow2";
+        partitionTableType = "efi";
+        baseName = "bunny-arm";
+        memSize = 4096;
+      };
+
       packageHosts = ids ++ (map (host: "${host}-lockdown") ids);
     in {
       nixosConfigurations = nixosConfs;
@@ -121,8 +134,8 @@
 
       # Generic ARM64 golden image for Apple-Silicon/VMware-Fusion testing.
       packages.${armSystem} = {
-        qcow2 = bunnyArmSystem.config.system.build.images."qemu-efi";
-        default = bunnyArmSystem.config.system.build.images."qemu-efi";
+        qcow2 = bunnyArmQcow2;
+        default = bunnyArmQcow2;
       };
     };
 }
