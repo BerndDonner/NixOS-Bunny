@@ -54,7 +54,7 @@ logs_dir = "logs"
 file = "golden-26.05.qcow2"
 
 # Optional tree overlaid onto /home/student during build-golden.
-student_home_content = "~/VirtualMashines/bunny-files-to-copy"
+student_home_content = "~/GitHub/NixOS-Bunny/repos/bunny-files-to-copy"
 
 # Page Chromium opens in the finalized golden image. Installed as managed policy
 # only on the .finalizing copy, never on the protected manual golden itself.
