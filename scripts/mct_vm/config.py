@@ -138,10 +138,6 @@ class AppConfig:
         return REPO_ROOT / "hosts"
 
     @property
-    def final_continue_config(self) -> Path:
-        return REPO_ROOT / "assets" / "continue" / "config.yaml"
-
-    @property
     def provisioning_public_key(self) -> Path:
         return REPO_ROOT / "assets" / "ssh" / "mct-vm-setup.pub"
 

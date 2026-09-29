@@ -59,7 +59,6 @@ def _config_check(cfg: AppConfig) -> int:
     print(f"  generated hosts         : {cfg.generated_hosts_dir}")
     print(f"  logs                    : {cfg.logs_dir}")
     print(f"  student home content    : {cfg.student_home_content or '(none)'}")
-    print(f"  Continue final config   : {cfg.final_continue_config}")
     print(f"  preparation host key    : {cfg.preparation_host_key}")
     print(f"  Bunny setup public key  : {cfg.provisioning_public_key}")
     print(f"  browser start page      : {cfg.browser_start_page}")
@@ -88,8 +87,6 @@ def _config_check(cfg: AppConfig) -> int:
         public_key=cfg.provisioning_public_key,
     )
     print("  setup key pair          : OK")
-    if not cfg.final_continue_config.is_file():
-        print(f"WARN: final Continue config is missing: {cfg.final_continue_config}")
     if cfg.student_home_content is not None and not cfg.student_home_content.is_dir():
         print(f"WARN: student_home_content is not a directory: {cfg.student_home_content}")
     if cfg.mode == "lockdown":

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import shlex
 import shutil
@@ -9,7 +8,7 @@ import subprocess
 import sys
 import tarfile
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from .config import AppConfig, REPO_ROOT
 from .runtime import (
@@ -24,6 +23,15 @@ from .runtime import (
 
 SESSION_DIR = REPO_ROOT / ".mct-vm"
 SESSION_FILE = SESSION_DIR / "golden-session.json"
+
+GIT_MANAGEMENT_NAMES = frozenset({".git", ".gitignore", ".gitattributes", ".gitmodules"})
+
+
+def _home_overlay_tar_filter(member: tarfile.TarInfo) -> tarfile.TarInfo | None:
+    parts = PurePosixPath(member.name).parts
+    if any(part in GIT_MANAGEMENT_NAMES for part in parts):
+        return None
+    return member
 
 
 def _copy_qcow2(src: Path, dst: Path) -> None:
@@ -121,27 +129,28 @@ def _copy_home_overlay(source_root: Path, *, key: Path) -> None:
         raise FileNotFoundError(f"student_home_content is not a directory: {source_root}")
 
     print(f"Overlaying student home content from {source_root}")
+    print("  Git management metadata is excluded: .git, .gitignore, .gitattributes, .gitmodules")
     proc = subprocess.Popen(
         [*ssh_base(key), 'tar --no-same-owner -C "$HOME" -xf -'],
         stdin=subprocess.PIPE,
     )
     assert proc.stdin is not None
 
-    copied = 0
     try:
         with tarfile.open(fileobj=proc.stdin, mode="w|") as tf:
-            for path in sorted(source_root.rglob("*")):
-                rel = path.relative_to(source_root)
-                if rel.as_posix() == ".continue/config.yaml":
+            # Add each top-level entry recursively rather than the source root
+            # itself. This preserves dotfiles, symlinks and empty directories
+            # without changing ownership/mode of $HOME. The filter also prunes
+            # nested Git metadata such as submodule .git files/directories.
+            for path in sorted(source_root.iterdir(), key=lambda item: item.name):
+                if path.name in GIT_MANAGEMENT_NAMES:
                     continue
-                try:
-                    st = path.lstat()
-                except OSError:
-                    continue
-                if not stat.S_ISREG(st.st_mode):
-                    continue
-                tf.add(path, arcname=rel.as_posix(), recursive=False)
-                copied += 1
+                tf.add(
+                    path,
+                    arcname=path.name,
+                    recursive=True,
+                    filter=_home_overlay_tar_filter,
+                )
     finally:
         try:
             proc.stdin.close()
@@ -151,7 +160,7 @@ def _copy_home_overlay(source_root: Path, *, key: Path) -> None:
     rc = proc.wait()
     if rc != 0:
         raise RuntimeError(f"student home overlay failed (ssh/tar exit {rc})")
-    print(f"Overlay complete: {copied} regular file(s); overlay Continue config intentionally skipped.")
+    print("Overlay complete.")
 
 
 def _guest_path(path: str) -> str:
@@ -193,62 +202,6 @@ echo "Chromium start page: $url"
     )
     if proc.returncode != 0:
         raise RuntimeError(f"Could not configure Chromium start page: {guest_path}")
-
-
-def _install_final_continue_config(cfg: AppConfig) -> None:
-    source = cfg.final_continue_config
-    if not source.is_file():
-        raise FileNotFoundError(f"Final Continue configuration not found: {source}")
-
-    content = source.read_bytes()
-    local_sha = hashlib.sha256(content).hexdigest()
-    cmd = [
-        *ssh_base(cfg.preparation_host_key),
-        'mkdir -p "$HOME/.continue" && cat > "$HOME/.continue/config.yaml" && '
-        'chmod 0644 "$HOME/.continue/config.yaml"',
-    ]
-    proc = subprocess.run(cmd, input=content, check=False)
-    if proc.returncode != 0:
-        raise RuntimeError("Failed to install final Continue configuration")
-
-    verify = subprocess.run(
-        [*ssh_base(cfg.preparation_host_key), 'sha256sum "$HOME/.continue/config.yaml" | cut -d" " -f1'],
-        stdout=subprocess.PIPE,
-        text=True,
-        check=False,
-    )
-    remote_sha = (verify.stdout or "").strip()
-    if verify.returncode != 0 or remote_sha != local_sha:
-        raise RuntimeError(
-            f"Continue config verification failed: local={local_sha}, remote={remote_sha or '<none>'}"
-        )
-    print("Final Continue configuration installed and verified.")
-
-
-
-
-def _install_initial_workspace(cfg: AppConfig) -> None:
-    """Install the stable VS Code workspace anchor used by all student images.
-
-    During manual golden preparation the workspace points at an empty hidden
-    placeholder directory. The operator opens this exact workspace once and
-    closes VS Code cleanly. build-vms later rewrites the same workspace file to
-    MCT_I3A or MCT_E3A, so VS Code restores the correct course on the student's
-    first normal start without a wrapper.
-    """
-    content = json.dumps(
-        {"folders": [{"path": ".mct-golden-workspace"}]},
-        indent=2,
-    ) + "\n"
-    cmd = [
-        *ssh_base(cfg.preparation_host_key),
-        'mkdir -p "$HOME/.mct-golden-workspace" && '
-        'cat > "$HOME/MCT.code-workspace" && chmod 0644 "$HOME/MCT.code-workspace"',
-    ]
-    proc = subprocess.run(cmd, input=content, text=True, check=False)
-    if proc.returncode != 0:
-        raise RuntimeError("Failed to install initial MCT.code-workspace")
-    print("Initial VS Code workspace installed: ~/MCT.code-workspace")
 
 
 def _clean_manual_user_traces(cfg: AppConfig) -> None:
@@ -387,7 +340,6 @@ def build_golden(cfg: AppConfig) -> int:
     print(f"  work UEFI state       : {cfg.golden_building_vars}")
     print(f"  student home content  : {cfg.student_home_content or '(none)'}")
     print("  browser start page    : deliberately deferred to finalize-golden")
-    print(f"  Continue config       : {cfg.final_continue_config}")
     print("  automatic preparation  : isolated headless boot")
     print("  manual GUI boot         : starts only after preparation has powered off")
     print("  Arduino USB passthrough : enabled for manual hardware test")
@@ -422,8 +374,6 @@ def build_golden(cfg: AppConfig) -> int:
         else:
             print("No student_home_content configured; overlay skipped.")
 
-        _install_final_continue_config(cfg)
-        _install_initial_workspace(cfg)
 
         if not cfg.golden_building_vars.is_file():
             raise FileNotFoundError(

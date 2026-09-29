@@ -250,9 +250,10 @@ the former `prepare-golden` automation. It:
 2. copies the single QCOW2 build result to
    `golden-*.building.qcow2` using reflink/sparse copying where supported;
 3. starts that image visibly with provisioning SSH;
-4. overlays optional student-home content;
-5. installs and verifies `assets/continue/config.yaml`;
-6. leaves the VM running for the deliberate manual setup.
+4. overlays the configured student-home content recursively, including dotfiles,
+   while excluding Git management metadata (`.git`, `.gitignore`, `.gitattributes`,
+   `.gitmodules`);
+5. leaves the VM running for the deliberate manual setup.
 
 Perform the checklist in `doc/golden-manual-checklist.md`, then shut the visible
 VM down cleanly. The `.building` file contains the manual work until
@@ -531,7 +532,7 @@ sudo systemctl restart mct-bootstrap-nixos-bunny.service
 - `modules/home/student.nix` — Home Manager entry point for `student`
 - `modules/home/modules/git.nix` — global Git defaults and recovery aliases
 - `hosts/*.nix` — host-specific Git identity/course data
-- `assets/continue/config.yaml` — reviewed Continue configuration installed before the manual phase
+- `[golden_image].student_home_content` — explicit source tree copied into the student home before the manual phase
 - `scripts/mct_vm/golden.py` — golden build/finalization and protected-copy lifecycle
 - `scripts/mct_vm/vm_build.py` — atomic per-VM classroom/lockdown builds
 - `scripts/mct_vm/artifacts.py` — final/temporary VM artifact names and checksum sidecars

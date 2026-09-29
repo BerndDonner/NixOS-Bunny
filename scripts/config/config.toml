@@ -53,7 +53,9 @@ logs_dir = "logs"
 # and matching *.OVMF_VARS.fd files automatically.
 file = "golden-26.05.qcow2"
 
-# Optional tree overlaid onto /home/student during build-golden.
+# Tree overlaid onto /home/student during build-golden. All entries, including
+# dotfiles, are copied recursively; Git management metadata (.git, .gitignore,
+# .gitattributes, .gitmodules) is deliberately excluded.
 student_home_content = "~/GitHub/NixOS-Bunny/repos/bunny-files-to-copy"
 
 # Page Chromium opens in the finalized golden image. Installed as managed policy

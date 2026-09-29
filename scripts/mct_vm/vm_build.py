@@ -175,7 +175,6 @@ cat > "$HOME/MCT.code-workspace" <<EOF
   ]
 }
 EOF
-rm -rf -- "$HOME/.mct-golden-workspace"
 '''
 
 
