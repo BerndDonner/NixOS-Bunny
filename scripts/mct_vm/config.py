@@ -53,7 +53,8 @@ class RunConfig:
 @dataclass(frozen=True)
 class AppConfig:
     mode: str
-    vm_images_dir: Path
+    arch: str
+    vm_images_root: Path
     logs_dir: Path
     golden_image: Path
     golden_vars: Path
@@ -70,6 +71,11 @@ class AppConfig:
     rollout_staging_dir: Path | None
     rollout_windows_vm_directory: str
     run: RunConfig
+
+    @property
+    def vm_images_dir(self) -> Path:
+        """Architecture-specific image directory below the configured root."""
+        return self.vm_images_root / self.arch
 
     @property
     def assignments_file(self) -> Path:
@@ -198,8 +204,8 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
     if unknown_sections:
         raise ValueError(f"config.toml: unknown section(s): {', '.join(unknown_sections)}")
 
-    workflow = _table(data, "workflow", {"mode"})
-    paths = _table(data, "paths", {"vm_images_dir", "logs_dir"})
+    workflow = _table(data, "workflow", {"mode", "arch"})
+    paths = _table(data, "paths", {"vm_images_root", "logs_dir"})
     golden = _table(
         data,
         "golden_image",
@@ -235,7 +241,12 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
     if mode not in {"classroom", "lockdown"}:
         raise ValueError("config.toml: [workflow].mode must be 'classroom' or 'lockdown'")
 
-    vm_images_dir = _path(_required_str(paths, "vm_images_dir", "paths"))
+    arch = _required_str(workflow, "arch", "workflow").lower()
+    if arch not in {"amd64", "arm64"}:
+        raise ValueError("config.toml: [workflow].arch must be 'amd64' or 'arm64'")
+
+    vm_images_root = _path(_required_str(paths, "vm_images_root", "paths"))
+    vm_images_dir = vm_images_root / arch
     logs_dir = _path(_required_str(paths, "logs_dir", "paths"))
 
     golden_name = _required_str(golden, "file", "golden_image")
@@ -252,7 +263,8 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
 
     result = AppConfig(
         mode=mode,
-        vm_images_dir=vm_images_dir,
+        arch=arch,
+        vm_images_root=vm_images_root,
         logs_dir=logs_dir,
         golden_image=golden_path,
         golden_vars=golden_vars,

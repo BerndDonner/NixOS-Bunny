@@ -46,9 +46,11 @@ def _short_usage() -> None:
 def _config_check(cfg: AppConfig) -> int:
     print("config.toml OK")
     print(f"  mode                    : {cfg.mode}")
+    print(f"  architecture            : {cfg.arch}")
     print(f"  VM assignments          : {cfg.assignments_file}")
     print(f"  host identity source    : {cfg.host_assignments_file}")
-    print(f"  golden image directory  : {cfg.vm_images_dir}")
+    print(f"  VM image root           : {cfg.vm_images_root}")
+    print(f"  architecture image dir  : {cfg.vm_images_dir}")
     print(f"  derived VM artifacts    : {cfg.vm_artifacts_dir}")
     print(f"  manual golden           : {cfg.golden_image}")
     print(f"  finalized golden        : {cfg.golden_finalized_image}")
@@ -106,6 +108,7 @@ def main(argv: list[str] | None = None) -> int:
 
         if command != "config-check":
             print(f"Mode: {cfg.mode}")
+            print(f"Architecture: {cfg.arch}")
             print_run_controls(cfg)
 
         if command == "config-check":

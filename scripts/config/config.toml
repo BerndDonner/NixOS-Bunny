@@ -29,11 +29,16 @@
 # "lockdown"  uses scripts/config/rollout-lockdown.csv and bunnyXX-lockdown.* images.
 mode = "classroom"
 
+# Guest/image architecture. This is deliberately explicit; there is no legacy
+# default. Supported values are "amd64" and "arm64".
+arch = "arm64"
+
 [paths]
-# Directory containing golden images. Derived Bunny artifacts are placed in
-# a subdirectory named after the active golden image, e.g.
-# ~/VirtualMashines/golden-26.05/bunny02.qcow2.
-vm_images_dir = "~/VirtualMashines"
+# Root for architecture-separated VM images. mct-vm automatically uses
+# <vm_images_root>/<arch>/, so amd64 and arm64 lineages can never collide.
+# Derived Bunny artifacts are placed below the active golden image, e.g.
+# ~/VirtualMashines/arm64/golden-26.05/bunny02.qcow2.
+vm_images_root = "~/VirtualMashines"
 
 # Runtime logs written by VM/golden preparation and rollout.
 logs_dir = "logs"

@@ -266,10 +266,7 @@ in {
     # VMware; vhci_hcd is loaded only by the Hyper-V-conditioned systemd unit.
     config.boot.kernelPackages.usbip
 
-  ]) ++ lib.optionals (!isX86) [
-    # Native Arduino CLI for the experimental ARM64 Bunny.
-    pkgs.arduino-cli
-  ];
+  ]);
 
   # Bash: ls colors + LS_COLORS via dircolors
   programs.bash = {
