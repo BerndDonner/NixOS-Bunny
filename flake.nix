@@ -21,6 +21,14 @@
 
       toolConfig = builtins.fromTOML (builtins.readFile ./scripts/config/config.toml);
       forgejoHost = toolConfig.forgejo.host;
+      targetMode = toolConfig.workflow.mode;
+      targetArch = toolConfig.workflow.arch;
+      targetSystem =
+        if targetMode == "lockdown" && targetArch == "arm64" then
+          throw "Lockdown/exam images are amd64-only"
+        else if targetArch == "amd64" then x86System
+        else if targetArch == "arm64" then armSystem
+        else throw "Unsupported [workflow].arch in scripts/config/config.toml: ${targetArch}";
 
       # The host files are generated from scripts/config/rollout.csv. Discover exactly the
       # active bunnyXX definitions instead of maintaining a second VM list here.
@@ -38,20 +46,22 @@
         let p = ./hosts + ("/" + host + ".nix");
         in if builtins.pathExists p then p else ./hosts/default.nix;
 
-      mkHost = { host, baseHost ? host, lockdown ? false, system ? x86System }:
+      mkHost = { host, baseHost ? host, lockdown ? false }:
         let h = import (hostFileFor baseHost);
         in nixpkgs.lib.nixosSystem {
-          inherit system;
+          system = targetSystem;
           specialArgs = {
             inherit baseHost lockdown forgejoHost;
-          } // lib.optionalAttrs (system == armSystem) {
+          } // lib.optionalAttrs (targetSystem == armSystem) {
+            # Disko builds the ARM image from the current x86_64 build host and
+            # uses binfmt for target-side aarch64 install steps.
             armImageBuilderPkgs = nixpkgs.legacyPackages.${x86System};
           };
           modules = [
             home-manager.nixosModules.home-manager
             ./modules/mct-vm.nix
           ]
-          ++ lib.optionals (system == armSystem) [
+          ++ lib.optionals (targetSystem == armSystem) [
             disko.nixosModules.disko
             ./modules/arm-image.nix
           ]
@@ -83,55 +93,51 @@
           value = mkHost { inherit host; };
         }) ids);
 
+      # Lockdown is exam infrastructure and deliberately exists only for amd64.
       lockdownConfs =
-        builtins.listToAttrs (map (baseHost: {
-          name = "${baseHost}-lockdown";
-          value = mkHost {
-            host = "${baseHost}-lockdown";
-            inherit baseHost;
-            lockdown = true;
+        if targetArch == "amd64" then
+          builtins.listToAttrs (map (baseHost: {
+            name = "${baseHost}-lockdown";
+            value = mkHost {
+              host = "${baseHost}-lockdown";
+              inherit baseHost;
+              lockdown = true;
+            };
+          }) ids)
+        else
+          {};
+
+      nixosConfs = normalConfs // lockdownConfs;
+
+      imageFor = host:
+        if targetArch == "amd64" then
+          nixosConfs.${host}.config.system.build.images."qemu-efi"
+        else
+          nixosConfs.${host}.config.system.build.diskoImages;
+
+      packageHosts =
+        ids
+        ++ lib.optionals (targetArch == "amd64") (map (host: "${host}-lockdown") ids);
+
+      targetPackages =
+        let
+          perHost = builtins.listToAttrs (map (host: {
+            name = "${host}-qcow2";
+            value = imageFor host;
+          }) packageHosts);
+        in
+          perHost
+          // {
+            # Golden image shortcut. QCOW2 is the canonical build artifact;
+            # deployment formats such as VMDK are exported only after build-vms.
+            qcow2 = imageFor "bunny";
+            default = imageFor "bunny";
+          }
+          // lib.optionalAttrs (targetArch == "amd64") {
+            qcow2-lockdown = imageFor "bunny-lockdown";
           };
-        }) ids);
-
-      armConfs = {
-        bunny-arm = mkHost {
-          host = "bunny-arm";
-          baseHost = "bunny";
-          system = armSystem;
-        };
-      };
-
-      nixosConfs = normalConfs // lockdownConfs // armConfs;
-
-      bunnySystem = nixosConfs.bunny;
-      bunnyLockdownSystem = nixosConfs."bunny-lockdown";
-      bunnyArmSystem = nixosConfs."bunny-arm";
-
-      packageHosts = ids ++ (map (host: "${host}-lockdown") ids);
     in {
       nixosConfigurations = nixosConfs;
-
-      packages.${x86System} = let
-        perHost =
-          builtins.listToAttrs (map (host: {
-            name = "${host}-qcow2";
-            value = nixosConfs.${host}.config.system.build.images."qemu-efi";
-          }) packageHosts);
-      in
-        perHost // {
-          # Golden image shortcut (bunny). QCOW2 is the canonical build artifact;
-          # deployment formats such as VMDK are exported only after build-vms.
-          qcow2 = bunnySystem.config.system.build.images."qemu-efi";
-          default = bunnySystem.config.system.build.images."qemu-efi";
-
-          # Lockdown golden image shortcut
-          qcow2-lockdown = bunnyLockdownSystem.config.system.build.images."qemu-efi";
-        };
-
-      # Generic ARM64 golden image for Apple-Silicon/VMware-Fusion testing.
-      packages.${armSystem} = {
-        qcow2 = bunnyArmSystem.config.system.build.diskoImages;
-        default = bunnyArmSystem.config.system.build.diskoImages;
-      };
+      packages.${targetSystem} = targetPackages;
     };
 }

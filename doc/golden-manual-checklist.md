@@ -5,6 +5,7 @@ laufenden `golden-*.building.qcow2` abarbeiten:
 
 - Chromium starten und Datenschutz-/Suchmaschinen-Einstellungen setzen.
 - In VS Code **Arduino Maker Workshop** und **Continue** installieren.
+- `~/MCT.code-workspace` einmal in VS Code öffnen und VS Code danach sauber schließen; dieser stabile Workspace-Pfad wird später pro Schüler auf `MCT_I3A` bzw. `MCT_E3A` umgeschrieben.
 - Arduino AVR Platform installieren.
 - Vorbereiteten Sketch kompilieren und benötigte Zusatz-Plugins akzeptieren.
 - Echten Upload auf Hardware durchführen.

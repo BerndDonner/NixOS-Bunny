@@ -89,6 +89,14 @@ class AppConfig:
         return CONFIG_DIR / "rollout.csv"
 
     @property
+    def private_devices_file(self) -> Path:
+        return CONFIG_DIR / "private-devices.csv"
+
+    @property
+    def nix_system(self) -> str:
+        return "x86_64-linux" if self.arch == "amd64" else "aarch64-linux"
+
+    @property
     def vm_suffix(self) -> str:
         return "" if self.mode == "classroom" else "-lockdown"
 
@@ -244,6 +252,10 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
     arch = _required_str(workflow, "arch", "workflow").lower()
     if arch not in {"amd64", "arm64"}:
         raise ValueError("config.toml: [workflow].arch must be 'amd64' or 'arm64'")
+    if mode == "lockdown" and arch != "amd64":
+        raise ValueError(
+            "config.toml: lockdown images are exam infrastructure and must use arch='amd64'"
+        )
 
     vm_images_root = _path(_required_str(paths, "vm_images_root", "paths"))
     vm_images_dir = vm_images_root / arch

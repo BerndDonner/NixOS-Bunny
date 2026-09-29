@@ -14,6 +14,7 @@ from .reset import (
     reset_vms,
 )
 from .rollout import rollout_images
+from .private_devices import validate_private_devices
 from .runtime import verify_provisioning_key_pair
 from .stage import stage_rollout
 
@@ -49,6 +50,7 @@ def _config_check(cfg: AppConfig) -> int:
     print(f"  architecture            : {cfg.arch}")
     print(f"  VM assignments          : {cfg.assignments_file}")
     print(f"  host identity source    : {cfg.host_assignments_file}")
+    print(f"  private devices         : {cfg.private_devices_file}")
     print(f"  VM image root           : {cfg.vm_images_root}")
     print(f"  architecture image dir  : {cfg.vm_images_dir}")
     print(f"  derived VM artifacts    : {cfg.vm_artifacts_dir}")
@@ -71,6 +73,16 @@ def _config_check(cfg: AppConfig) -> int:
         print(f"WARN: active assignments file does not exist: {cfg.assignments_file}")
     if not cfg.host_assignments_file.is_file():
         print(f"WARN: classroom host identity source does not exist: {cfg.host_assignments_file}")
+    if cfg.mode == "classroom":
+        devices = validate_private_devices(cfg)
+        counts: dict[str, int] = {}
+        for device in devices:
+            counts[device.profile] = counts.get(device.profile, 0) + 1
+        if counts:
+            rendered = ", ".join(f"{profile}={counts[profile]}" for profile in sorted(counts))
+            print(f"  private device profiles : {rendered}")
+        else:
+            print("  private device profiles : none")
     verify_provisioning_key_pair(
         private_key=cfg.preparation_host_key,
         public_key=cfg.provisioning_public_key,

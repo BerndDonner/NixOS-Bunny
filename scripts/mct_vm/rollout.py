@@ -957,6 +957,12 @@ _UNPACK_POLL_SEC = 2.0
 
 
 def rollout_images(cfg: AppConfig) -> int:
+    if cfg.arch != "amd64":
+        raise ValueError(
+            "rollout is the Windows classroom deployment and requires [workflow].arch = 'amd64'. "
+            "ARM64 images may be built and staged for private devices, but are never deployed by rollout."
+        )
+
     logfile = make_logfile(str(cfg.logs_dir))
 
     log("INFO", "=== Rollout started ===", logfile=logfile)

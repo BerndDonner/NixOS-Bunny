@@ -225,6 +225,32 @@ def _install_final_continue_config(cfg: AppConfig) -> None:
     print("Final Continue configuration installed and verified.")
 
 
+
+
+def _install_initial_workspace(cfg: AppConfig) -> None:
+    """Install the stable VS Code workspace anchor used by all student images.
+
+    During manual golden preparation the workspace points at an empty hidden
+    placeholder directory. The operator opens this exact workspace once and
+    closes VS Code cleanly. build-vms later rewrites the same workspace file to
+    MCT_I3A or MCT_E3A, so VS Code restores the correct course on the student's
+    first normal start without a wrapper.
+    """
+    content = json.dumps(
+        {"folders": [{"path": ".mct-golden-workspace"}]},
+        indent=2,
+    ) + "\n"
+    cmd = [
+        *ssh_base(cfg.preparation_host_key),
+        'mkdir -p "$HOME/.mct-golden-workspace" && '
+        'cat > "$HOME/MCT.code-workspace" && chmod 0644 "$HOME/MCT.code-workspace"',
+    ]
+    proc = subprocess.run(cmd, input=content, text=True, check=False)
+    if proc.returncode != 0:
+        raise RuntimeError("Failed to install initial MCT.code-workspace")
+    print("Initial VS Code workspace installed: ~/MCT.code-workspace")
+
+
 def _clean_manual_user_traces(cfg: AppConfig) -> None:
     script = r'''set -euo pipefail
 
@@ -295,10 +321,11 @@ def _find_built_qcow2(out_paths: list[Path]) -> Path:
     return unique[0]
 
 
-def _nix_build_generic_qcow2() -> Path:
+def _nix_build_generic_qcow2(cfg: AppConfig) -> Path:
     if shutil.which("nix") is None:
         raise FileNotFoundError("Missing required command in PATH: nix")
-    cmd = ["nix", "build", ".#qcow2", "--no-link", "--print-out-paths"]
+    target = f".#packages.{cfg.nix_system}.qcow2"
+    cmd = ["nix", "build", target, "--no-link", "--print-out-paths"]
     print("$ " + shlex.join(cmd))
     proc = subprocess.run(
         cmd,
@@ -370,7 +397,7 @@ def build_golden(cfg: AppConfig) -> int:
         return 0
 
     cfg.vm_images_dir.mkdir(parents=True, exist_ok=True)
-    built = _nix_build_generic_qcow2()
+    built = _nix_build_generic_qcow2(cfg)
     print(f"Copying Nix QCOW2 {built} -> {cfg.golden_building_image}")
     _copy_qcow2(built, cfg.golden_building_image)
 
@@ -378,6 +405,7 @@ def build_golden(cfg: AppConfig) -> int:
     # race where SDDM/Plasma could start using /home/student while SSH
     # provisioning was still overlaying files into that same home directory.
     prep_qemu = start_qemu(
+        arch=cfg.arch,
         disk=cfg.golden_building_image,
         vars_file=cfg.golden_building_vars,
         headless=True,
@@ -395,6 +423,7 @@ def build_golden(cfg: AppConfig) -> int:
             print("No student_home_content configured; overlay skipped.")
 
         _install_final_continue_config(cfg)
+        _install_initial_workspace(cfg)
 
         if not cfg.golden_building_vars.is_file():
             raise FileNotFoundError(
@@ -406,6 +435,7 @@ def build_golden(cfg: AppConfig) -> int:
 
         print("Starting visible Golden VM for manual work...")
         manual_qemu = start_qemu(
+            arch=cfg.arch,
             disk=cfg.golden_building_image,
             vars_file=cfg.golden_building_vars,
             headless=False,
@@ -424,6 +454,7 @@ def build_golden(cfg: AppConfig) -> int:
         print()
         print("build-golden automatic preparation is complete.")
         print("The visible VM is now ready for the manual Golden setup; it is safe to log in.")
+        print("During manual setup, open ~/MCT.code-workspace once in VS Code and close VS Code cleanly.")
         print("When the manual work is finished, shut the VM down cleanly, then run:")
         print("  ./scripts/mct-vm.py finalize-golden")
         return 0
@@ -498,6 +529,7 @@ def finalize_golden(cfg: AppConfig) -> int:
     _copy_plain(cfg.golden_vars, cfg.golden_finalizing_vars)
 
     qemu = start_qemu(
+        arch=cfg.arch,
         disk=cfg.golden_finalizing_image,
         vars_file=cfg.golden_finalizing_vars,
         headless=True,

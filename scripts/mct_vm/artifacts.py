@@ -64,6 +64,18 @@ class ImageArtifacts:
     def checksum_name(self) -> str:
         return f"{self.compressed_name}.sha256"
 
+    @property
+    def compressed_qcow2_name(self) -> str:
+        return f"{self.stem}.qcow2.zst"
+
+    @property
+    def building_compressed_qcow2_name(self) -> str:
+        return f"{self.stem}.building.qcow2.zst"
+
+    @property
+    def compressed_qcow2_checksum_name(self) -> str:
+        return f"{self.compressed_qcow2_name}.sha256"
+
     def qcow2(self, base: Path) -> Path:
         return base / self.qcow2_name
 
@@ -91,6 +103,15 @@ class ImageArtifacts:
     def checksum(self, base: Path) -> Path:
         return base / self.checksum_name
 
+    def compressed_qcow2(self, base: Path) -> Path:
+        return base / self.compressed_qcow2_name
+
+    def building_compressed_qcow2(self, base: Path) -> Path:
+        return base / self.building_compressed_qcow2_name
+
+    def compressed_qcow2_checksum(self, base: Path) -> Path:
+        return base / self.compressed_qcow2_checksum_name
+
     def vm_paths(self, base: Path) -> tuple[Path, ...]:
         return (
             self.qcow2(base),
@@ -106,6 +127,9 @@ class ImageArtifacts:
             self.compressed(base),
             self.building_compressed(base),
             self.checksum(base),
+            self.compressed_qcow2(base),
+            self.building_compressed_qcow2(base),
+            self.compressed_qcow2_checksum(base),
         )
 
 

@@ -1,7 +1,7 @@
 { armImageBuilderPkgs, ... }:
 
 {
-  # ARM-only image builder for Apple-Silicon/VMware-Fusion testing.
+  # ARM-only image builder for Apple-Silicon/VMware-Fusion student VMs.
   #
   # Disko runs an x86_64 builder VM and uses binfmt for the aarch64 target-side
   # install steps. This avoids the legacy make-disk-image/cptofs path whose LKL

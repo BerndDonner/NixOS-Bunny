@@ -7,18 +7,13 @@ from pathlib import Path
 
 from .artifacts import image_artifacts
 from .config import AppConfig, REPO_ROOT
-from .csv_model import read_rollout_csv, require_fields
+from .csv_model import require_fields
 from .golden import ensure_no_live_golden_session
-from .selection import select_rows
+from .private_devices import active_build_rows
 
 
 def _selected_vms(cfg: AppConfig) -> list[str]:
-    doc = read_rollout_csv(cfg.assignments_file)
-    rows = select_rows(
-        doc.active_rows(),
-        include=cfg.run.vms_include,
-        exclude=cfg.run.vms_exclude,
-    )
+    rows = active_build_rows(cfg)
     for row in rows:
         require_fields(row, ["vm"], command="reset")
     return [row.vm for row in rows]
@@ -80,7 +75,8 @@ def _remove_all_downstream(cfg: AppConfig) -> None:
 def reset_rollout_images(cfg: AppConfig) -> int:
     vms = _selected_vms(cfg)
     if not vms:
-        print(f"WARN: no VMs selected from {cfg.assignments_file}")
+        source = cfg.private_devices_file if cfg.arch == "arm64" else cfg.assignments_file
+        print(f"WARN: no VMs selected from {source}")
         return 0
     print(f"Reset rollout images for mode={cfg.mode}: {', '.join(vms)}")
     _remove_vm_family(cfg, vms=vms, suffix=cfg.vm_suffix, include_vm=False)
@@ -91,7 +87,8 @@ def reset_rollout_images(cfg: AppConfig) -> int:
 def reset_vms(cfg: AppConfig) -> int:
     vms = _selected_vms(cfg)
     if not vms:
-        print(f"WARN: no VMs selected from {cfg.assignments_file}")
+        source = cfg.private_devices_file if cfg.arch == "arm64" else cfg.assignments_file
+        print(f"WARN: no VMs selected from {source}")
         return 0
     print(f"Reset built VMs for mode={cfg.mode}: {', '.join(vms)}")
     _remove_vm_family(cfg, vms=vms, suffix=cfg.vm_suffix, include_vm=True)

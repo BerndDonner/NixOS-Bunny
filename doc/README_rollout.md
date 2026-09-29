@@ -12,12 +12,22 @@ VMware images and checksum sidecars:
 ./scripts/mct-vm.py build-rollout-images
 ```
 
-For every selected active VM this produces the committed pair:
+For every selected active VM this produces the committed VMware pair:
 
 ```text
 bunny12.vmdk.zst
 bunny12.vmdk.zst.sha256
 ```
+
+For a classroom amd64 VM listed as `linux-amd64` in
+`scripts/config/private-devices.csv`, it additionally produces:
+
+```text
+bunny12.qcow2.zst
+bunny12.qcow2.zst.sha256
+```
+
+The SHA256 sidecar always verifies the compressed `.zst` file.
 
 The conversion uses temporary `.building.vmdk` / `.building.vmdk.zst` files.
 The final image plus a valid sidecar is the success state; a later normal run
@@ -42,19 +52,28 @@ staging_dir = "/run/media/bernd/MCT-ROLLOUT/NixOS-Bunny"
 windows_vm_directory = 'C:\Virtual_Machines'
 ```
 
-`stage-rollout` always stages **all active VMs** from the active rollout CSV;
-`[run].vms_include` / `vms_exclude` are intentionally ignored. It verifies the
-source pairs, rebuilds the staged image set, and verifies the copied pairs again.
+`stage-rollout` always stages **all active school VMs**; `[run].vms_include` /
+`vms_exclude` are intentionally ignored. The root `images/` set is always the
+amd64 Windows school rollout. In classroom mode, `private-devices.csv` is also
+resolved against `rollout.csv` and a self-contained `private/` tree is staged
+with the required amd64/arm64 artifacts.
 
 ```text
 ./scripts/mct-vm.py stage-rollout
 ```
 
 The staged directory is self-contained for Windows rollout and includes the
-repository/tooling, `images/`, `scripts/tools/zstd.exe`, and the active rollout
-CSV. Private/local repositories under `repos/` are explicitly excluded.
+repository/tooling, root `images/`, `scripts/tools/zstd.exe`, and the active
+rollout CSV. In classroom mode it also contains `private/manifest.csv`,
+`private/images/{amd64,arm64}/` and one `students/<forgejo>-<bunnyXX>/INFO.txt`
+folder per student with private devices. Private/local repositories under
+`repos/` are explicitly excluded.
 
 ## 3. Roll out from a Windows teacher PC
+
+`rollout` is intentionally amd64-only. ARM64 artifacts on the SSD are private
+device images and are never deployed to school PCs by this command.
+
 
 Requirements are Python 3.11+ and the standard Windows tools used by rollout
 (`robocopy`, `schtasks`, PowerShell/certutil, administrative shares):

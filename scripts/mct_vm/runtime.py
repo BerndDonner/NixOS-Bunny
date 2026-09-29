@@ -216,6 +216,7 @@ def remote_script_command(key: Path, args: list[str]) -> list[str]:
 
 def start_qemu(
     *,
+    arch: str,
     disk: Path,
     vars_file: Path,
     headless: bool,
@@ -223,8 +224,10 @@ def start_qemu(
     arduino: bool = False,
     stdout=None,
 ) -> subprocess.Popen[bytes]:
+    if arch not in {"amd64", "arm64"}:
+        raise ValueError(f"Unsupported guest architecture: {arch}")
     check_ssh_port_free()
-    cmd = [str(qemu_script_path())]
+    cmd = [str(qemu_script_path()), "--arch", arch]
     if headless:
         cmd.append("--headless")
     if discard:

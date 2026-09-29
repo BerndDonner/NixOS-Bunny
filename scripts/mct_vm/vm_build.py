@@ -14,7 +14,7 @@ from pathlib import Path
 from .artifacts import image_artifacts
 from .config import AppConfig, REPO_ROOT
 from .csv_model import CsvRow, read_rollout_csv, require_fields
-from .selection import select_rows
+from .private_devices import active_build_rows
 from .runtime import (
     check_ssh_port_free,
     poweroff_guest,
@@ -29,12 +29,7 @@ from .runtime import (
 
 
 def _selected_rows(cfg: AppConfig) -> list[CsvRow]:
-    doc = read_rollout_csv(cfg.assignments_file)
-    return select_rows(
-        doc.active_rows(),
-        include=cfg.run.vms_include,
-        exclude=cfg.run.vms_exclude,
-    )
+    return active_build_rows(cfg)
 
 
 def _format_url(template: str, *, repo: str, course: str) -> str:
@@ -172,6 +167,15 @@ else
 fi
 
 bash _config/setup.sh
+
+cat > "$HOME/MCT.code-workspace" <<EOF
+{
+  "folders": [
+    { "path": "$repo" }
+  ]
+}
+EOF
+rm -rf -- "$HOME/.mct-golden-workspace"
 '''
 
 
@@ -209,6 +213,9 @@ expected_branch=$student
 git config --local --get-all include.path | grep -Fxq '../_config/gitconfig' || fail "course gitconfig include is missing"
 [[ -f .vscode/settings.json ]] || fail ".vscode/settings.json is missing"
 [[ -f .vscode/launch.json ]] || fail ".vscode/launch.json is missing"
+[[ -f "$HOME/MCT.code-workspace" ]] || fail "MCT.code-workspace is missing"
+jq -e --arg repo "$repo" '.folders == [{"path": $repo}] and ((keys | sort) == ["folders"])' \
+    "$HOME/MCT.code-workspace" >/dev/null || fail "MCT.code-workspace does not contain exactly $repo"
 
 if [[ "$student" == "donner" ]]; then
     [[ "$(git config --local --get branch.master.remote 2>/dev/null || true)" == "origin" ]] || fail "teacher master remote metadata is wrong"
@@ -491,7 +498,8 @@ def _final_pair_state(disk: Path, vars_file: Path) -> str:
 def build_vms(cfg: AppConfig) -> int:
     rows = _selected_rows(cfg)
     if not rows:
-        print(f"WARN: no VMs selected from {cfg.assignments_file}")
+        source = cfg.private_devices_file if cfg.arch == "arm64" else cfg.assignments_file
+        print(f"WARN: no VMs selected from {source}")
         return 0
 
     if not cfg.golden_finalized_image.is_file() or not cfg.golden_finalized_vars.is_file():
@@ -578,6 +586,7 @@ def build_vms(cfg: AppConfig) -> int:
 
             with qemu_log.open("wb") as qlog:
                 qemu = start_qemu(
+                    arch=cfg.arch,
                     disk=building_disk,
                     vars_file=building_vars,
                     headless=True,

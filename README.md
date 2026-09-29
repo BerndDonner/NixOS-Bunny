@@ -182,9 +182,17 @@ backup first, because the manual golden contains work that is not reproducible.
 
 `[workflow].mode` selects one output family. Classroom uses
 `scripts/config/rollout.csv` and `bunnyXX.*`; lockdown uses
-`scripts/config/rollout-lockdown.csv` and `bunnyXX-lockdown.*`. The lockdown CSV
-is a deployment/exam selection and must be created/reviewed for the actual exam.
-It is **not** used to generate `hosts/bunnyXX.nix`.
+`scripts/config/rollout-lockdown.csv` and `bunnyXX-lockdown.*`. `[workflow].arch`
+selects `amd64` or `arm64`; lockdown/exam images are amd64-only. Classroom ARM64
+`build-vms` builds only the students listed as `macos-arm64` in
+`scripts/config/private-devices.csv`. The lockdown CSV is a deployment/exam
+selection and must be created/reviewed for the actual exam. It is **not** used
+to generate `hosts/bunnyXX.nix`.
+
+`private-devices.csv` has exactly the columns `vm,profile`. Supported profiles
+are `windows-amd64`, `linux-amd64` and `macos-arm64`. Missing VMs simply have no
+private device. Names, courses and Forgejo identities remain authoritative in
+`rollout.csv`.
 
 Temporary run controls remain under `[run]`. `vms_include` / `vms_exclude`
 select rows for `build-vms`, `build-rollout-images` and their selected reset
@@ -206,8 +214,9 @@ golden-26.05.finalized.qcow2   source accepted by build-vms
 <golden-name>/bunny00.qcow2           successfully built classroom VM
 <golden-name>/bunny00-lockdown.qcow2  successfully built lockdown VM
 
-<golden-name>/bunny00.building.vmdk.zst  in-progress rollout image
-<golden-name>/bunny00.vmdk.zst + .sha256 committed rollout artifact
+<golden-name>/bunny00.building.vmdk.zst  in-progress VMware rollout image
+<golden-name>/bunny00.vmdk.zst + .sha256 committed VMware artifact
+<golden-name>/bunny00.qcow2.zst + .sha256 packed private-Linux artifact
 ```
 
 A normal build command skips an already complete final output. To deliberately
@@ -438,12 +447,12 @@ failed resolution leaves that endpoint blocked rather than opening the network.
 ./scripts/mct-vm.py build-rollout-images
 ```
 
-For each selected finished QCOW2 this creates a temporary VMDK, compresses it to
-`.building.vmdk.zst`, then publishes the final `.vmdk.zst` and atomically writes
-its `.sha256` sidecar. The image + valid sidecar pair is the success marker and
-is skipped on later runs. A lone final ZST without a sidecar is treated as an
-interrupted build and rebuilt; a final pair with a checksum mismatch is an
-error.
+For each selected finished QCOW2 this creates the compressed VMware VMDK artifact
+`.vmdk.zst` plus its `.sha256` sidecar. On amd64, VMs with a `linux-amd64`
+private-device profile additionally get a directly compressed `.qcow2.zst` plus
+sidecar. ARM64 classroom builds contain only the `macos-arm64` students and
+therefore produce their Fusion VMDKs. The checksum always belongs to the packed
+`.zst` file.
 
 The temporary VMDK is removed after successful compression. Old legacy `.vmdk`
 files are removed by `reset-rollout-images` but are never trusted as build state.
@@ -472,10 +481,16 @@ again as appropriate.
 ./scripts/mct-vm.py rollout
 ```
 
-`stage-rollout` verifies every active image/sidecar pair and rebuilds the staged
-image set on the configured SSD. It deliberately ignores `vms_include` /
-`vms_exclude` so a pilot filter cannot silently produce an incomplete rollout
-medium. Private `repos/` content is explicitly excluded from the staged tree.
+`stage-rollout` verifies every active school image/sidecar pair and rebuilds the
+staged SSD. The root `images/` remains a complete amd64 Windows school rollout.
+For classroom mode it also creates a fully self-contained `private/` area from
+`private-devices.csv`: private Windows uses VMDK.ZST, private Linux uses
+QCOW2.ZST and Apple-Silicon macOS uses ARM64 VMDK.ZST. Duplicate VMDKs between
+the school and private areas are intentional. Student `INFO.txt` files point to
+the correct image. `vms_include` / `vms_exclude` are deliberately ignored while
+staging so a pilot filter cannot silently produce an incomplete medium. Private
+`repos/` content is explicitly excluded. `rollout` itself remains amd64 Windows
+school deployment only.
 
 On the Windows teacher PC:
 

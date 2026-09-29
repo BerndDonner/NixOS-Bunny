@@ -30,7 +30,9 @@
 mode = "classroom"
 
 # Guest/image architecture. This is deliberately explicit; there is no legacy
-# default. Supported values are "amd64" and "arm64".
+# default. Supported values are "amd64" and "arm64". Lockdown/exam images are
+# amd64-only. For classroom arm64, build-vms selects only macos-arm64 entries
+# from scripts/config/private-devices.csv.
 arch = "arm64"
 
 [paths]
@@ -68,6 +70,9 @@ preparation_host_key = "~/.ssh/mct-vm-setup"
 optimize_image_size = true
 
 [courses]
+# Private device demand is listed separately in scripts/config/private-devices.csv
+# with the exact columns: vm,profile. Supported profiles are currently
+# windows-amd64, linux-amd64 and macos-arm64.
 # Local classroom repository used as the exact bootstrap source.
 # {repo}=MCT_<course>; {course} is also available. The repository must be
 # committed and clean; build-vms transfers it via a local git bundle.
@@ -93,7 +98,9 @@ repo = "repos/MCT-Schulaufgabe1"
 prepared_images_dir = "images"
 
 # Dedicated directory on the mounted rollout SSD. stage-rollout replaces its
-# generated image set and copies the tooling, but excludes private repos/.
+# generated image set and copies the tooling, but excludes private repos/. The
+# root images/ directory remains the amd64 school rollout; private/ is a fully
+# self-contained copy of all private-device artifacts across amd64 and arm64.
 staging_dir = "/run/media/bernd/Extreme SSD/rollout_2627_1"
 
 # Target directory on the Windows classroom PCs.
