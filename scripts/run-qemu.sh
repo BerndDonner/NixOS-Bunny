@@ -433,7 +433,6 @@ else
     -m "$MEM_MB"
     -smp "cores=$CORES,threads=1,sockets=1"
     -nodefaults
-    -no-reboot
 
     -drive "if=pflash,format=raw,readonly=on,file=$FW_CODE"
   )
