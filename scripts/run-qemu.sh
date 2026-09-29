@@ -417,6 +417,14 @@ else
     ACCEL_ARGS=(-accel "tcg,thread=multi" -cpu max)
   fi
 
+  ARM_DISK_DRIVE="file=$DISK_QCOW2,if=none,id=disk0,format=qcow2"
+  if [[ "$DISCARD" -eq 1 ]]; then
+    ARM_DISK_DRIVE+=",discard=unmap,detect-zeroes=unmap"
+  fi
+  if [[ "$SNAPSHOT" -eq 1 ]]; then
+    ARM_DISK_DRIVE+=",snapshot=on"
+  fi
+
   QEMU_CMD=(
     "$QEMU_BIN"
     -name "bunny-arm64"
@@ -426,7 +434,6 @@ else
     -smp "cores=$CORES,threads=1,sockets=1"
     -nodefaults
     -no-reboot
-    -boot order=c
 
     -drive "if=pflash,format=raw,readonly=on,file=$FW_CODE"
   )
@@ -442,10 +449,11 @@ else
   fi
 
   QEMU_CMD+=(
-    -drive "$DISK_DRIVE"
+    -drive "$ARM_DISK_DRIVE"
+    -device "virtio-blk-pci,drive=disk0,bootindex=1"
 
     -netdev "$NETDEV"
-    -device "virtio-net-pci,netdev=n1"
+    -device "virtio-net-pci,netdev=n1,bootindex=2"
 
     -object "rng-random,filename=/dev/urandom,id=rng0"
     -device "virtio-rng-pci,rng=rng0"
