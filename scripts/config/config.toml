@@ -33,7 +33,7 @@ mode = "classroom"
 # default. Supported values are "amd64" and "arm64". Lockdown/exam images are
 # amd64-only. For classroom arm64, build-vms selects only macos-arm64 entries
 # from scripts/config/private-devices.csv.
-arch = "arm64"
+arch = "amd64"
 
 [paths]
 # Root for architecture-separated VM images. mct-vm automatically uses
@@ -104,7 +104,7 @@ prepared_images_dir = "images"
 # generated image set and copies the tooling, but excludes private repos/. The
 # root images/ directory remains the amd64 school rollout; private/ is a fully
 # self-contained copy of all private-device artifacts across amd64 and arm64.
-staging_dir = "/run/media/bernd/Extreme SSD/rollout_2627_1"
+staging_dir = "/run/media/bernd/Extreme SSD/rollout_2627_2"
 
 # Target directory on the Windows classroom PCs.
 windows_vm_directory = 'C:\Virtual_Machines'
