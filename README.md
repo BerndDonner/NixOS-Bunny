@@ -298,11 +298,12 @@ renames the pair to the final `bunnyXX*` names. A final pair therefore means the
 whole VM build succeeded. A stale `.building` pair from an interrupted run is
 recreated from the finalized golden.
 
-For classroom mode, `build-vms` uses the reviewed local course repository configured
-under `[courses].source` (normally `repos/MCT_<course>`). It creates a local Git
-bundle, copies that exact committed state into each VM, and configures Forgejo as
-the only final remote. No GitHub bootstrap is involved. Student branch/setup
-hooks/VS Code protection, validation and shutdown remain unchanged.
+For classroom mode, `build-vms` uses the local course repository configured under
+`[courses].source` (normally `repos/MCT_<course>`). It creates a local Git bundle
+from the committed refs and configures Forgejo as the only final remote. A dirty
+index/worktree is allowed: `build-vms` prints a warning and excludes uncommitted
+and untracked changes from the bundle. No GitHub bootstrap is involved. Student
+branch/setup hooks/VS Code protection, validation and shutdown remain unchanged.
 
 For lockdown mode, `scripts/config/rollout-lockdown.csv` selects the VMs while
 `hosts/bunnyXX.nix` still comes from the classroom identity mapping. The exam

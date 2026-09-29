@@ -395,7 +395,13 @@ def _format_source_path(template: str, *, repo: str, course: str) -> Path:
     return path.resolve()
 
 
-def _prepare_repo_bundle(repo: Path, temp_dir: Path, *, label: str) -> tuple[Path, str, str]:
+def _prepare_repo_bundle(
+    repo: Path,
+    temp_dir: Path,
+    *,
+    label: str,
+    require_clean: bool,
+) -> tuple[Path, str, str]:
     if not repo.is_dir() or not (repo / ".git").exists():
         raise FileNotFoundError(f"Configured {label} repository is not a Git repository: {repo}")
 
@@ -415,9 +421,16 @@ def _prepare_repo_bundle(repo: Path, temp_dir: Path, *, label: str) -> tuple[Pat
         check=True,
     ).stdout
     if status.strip():
-        raise RuntimeError(
-            f"{label.capitalize()} repository has uncommitted/untracked files: {repo}. "
-            "Commit the exact state before building images."
+        if require_clean:
+            raise RuntimeError(
+                f"{label.capitalize()} repository has uncommitted/untracked files: {repo}. "
+                "Commit the exact state before building images."
+            )
+        print(
+            f"WARNING: {label.capitalize()} repository has uncommitted/untracked files: {repo}. "
+            "The VM bundle contains only committed refs; index/worktree changes and "
+            "untracked files are excluded.",
+            file=sys.stderr,
         )
 
     branch = subprocess.run(
@@ -451,7 +464,12 @@ def _prepare_classroom_bundles(
             raise ValueError(
                 f"[courses].source must resolve to a direct child of repos/: {source}"
             )
-        result[course] = _prepare_repo_bundle(source, temp_dir, label="classroom")
+        result[course] = _prepare_repo_bundle(
+            source,
+            temp_dir,
+            label="classroom",
+            require_clean=False,
+        )
     return result
 
 
@@ -459,7 +477,12 @@ def _prepare_lockdown_bundle(cfg: AppConfig, temp_dir: Path) -> tuple[Path, str,
     repo = cfg.lockdown_repo
     if repo is None:
         raise ValueError("[lockdown].repo is empty; configure the local exam repository first")
-    return _prepare_repo_bundle(repo, temp_dir, label="lockdown")
+    return _prepare_repo_bundle(
+        repo,
+        temp_dir,
+        label="lockdown",
+        require_clean=True,
+    )
 
 
 def _describe_row(cfg: AppConfig, row: CsvRow) -> None:

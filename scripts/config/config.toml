@@ -75,9 +75,10 @@ optimize_image_size = true
 # Private device demand is listed separately in scripts/config/private-devices.csv
 # with the exact columns: vm,profile. Supported profiles are currently
 # windows-amd64, linux-amd64 and macos-arm64.
-# Local classroom repository used as the exact bootstrap source.
-# {repo}=MCT_<course>; {course} is also available. The repository must be
-# committed and clean; build-vms transfers it via a local git bundle.
+# Local classroom repository used as the bootstrap source.
+# {repo}=MCT_<course>; {course} is also available. build-vms transfers only
+# committed Git refs via a local bundle. A dirty index/worktree is allowed in
+# classroom mode; build-vms warns and excludes those uncommitted changes.
 source = "repos/{repo}"
 
 # Classroom Forgejo remote configured as origin. No credentials are used during
