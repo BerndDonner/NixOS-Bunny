@@ -63,6 +63,13 @@ student_home_content = "~/GitHub/NixOS-Bunny/repos/bunny-files-to-copy"
 browser_start_page = "~/reference/www.arduino.cc/en/Reference/HomePage.html"
 
 [provisioning]
+# Public repository cloned into /home/student/NixOS-Bunny on first boot.
+# build-golden requires the local NixOS-Bunny HEAD to be clean and to match the
+# published HEAD of this exact repository, so later build-vms runs cannot
+# accidentally evaluate a different configuration from the one used to build
+# the Golden image.
+nixos_bunny_bootstrap_repo = "https://github.com/BerndDonner/NixOS-Bunny.git"
+
 # Private SSH key used while mct-vm builds golden/per-student images. The public
 # half is versioned as assets/ssh/mct-vm-setup.pub.
 preparation_host_key = "~/.ssh/mct-vm-setup"

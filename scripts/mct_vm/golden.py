@@ -124,6 +124,82 @@ def ensure_no_live_golden_session() -> None:
     )
 
 
+def _git_capture(*args: str) -> str:
+    proc = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), *args],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout).strip()
+        suffix = f"\nGit said: {detail}" if detail else ""
+        raise RuntimeError(
+            f"Could not inspect the NixOS-Bunny Git repository with: git {' '.join(args)}{suffix}"
+        )
+    return proc.stdout.strip()
+
+
+def _require_clean_published_source(cfg: AppConfig) -> None:
+    """Require the local flake source to equal the repository cloned by the Golden."""
+
+    inside = _git_capture("rev-parse", "--is-inside-work-tree")
+    if inside != "true":
+        raise RuntimeError(
+            f"build-golden requires {REPO_ROOT} to be a Git working tree so its "
+            "published state can be verified."
+        )
+
+    status = _git_capture("status", "--porcelain=v1", "--untracked-files=all")
+    if status:
+        rendered = "\n".join(f"  {line}" for line in status.splitlines())
+        raise RuntimeError(
+            "Refusing to build the Golden image from an unpublished NixOS-Bunny state.\n"
+            "build-golden evaluates the local checkout, but the Golden VM later "
+            "bootstraps /home/student/NixOS-Bunny from the published repository. "
+            "If those states differ, build-vms can evaluate a different architecture "
+            "or configuration than the Golden image was built from.\n\n"
+            "Working tree has uncommitted/untracked changes:\n"
+            f"{rendered}\n\n"
+            "Commit and push the exact intended NixOS-Bunny state before running build-golden."
+        )
+
+    local_head = _git_capture("rev-parse", "HEAD")
+    remote = cfg.nixos_bunny_bootstrap_repo
+    proc = subprocess.run(
+        ["git", "ls-remote", "--exit-code", remote, "HEAD"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0 or not proc.stdout.strip():
+        detail = (proc.stderr or proc.stdout).strip()
+        suffix = f"\nGit said: {detail}" if detail else ""
+        raise RuntimeError(
+            "Could not verify the published NixOS-Bunny bootstrap revision.\n"
+            f"  bootstrap repository: {remote}\n"
+            "build-golden refuses to continue because the Golden VM later clones "
+            f"that repository and must receive the exact local build state.{suffix}"
+        )
+
+    published_head = proc.stdout.split()[0]
+    if local_head != published_head:
+        raise RuntimeError(
+            "Refusing to build the Golden image because local HEAD is not the "
+            "published bootstrap revision.\n"
+            "build-golden evaluates the local checkout, while the Golden VM later "
+            "clones the published repository into /home/student/NixOS-Bunny.\n\n"
+            f"  local HEAD         : {local_head}\n"
+            f"  published HEAD     : {published_head}\n"
+            f"  bootstrap repository: {remote}\n\n"
+            "Push the exact intended commit before running build-golden."
+        )
+
+    print(f"NixOS-Bunny source preflight: clean and published ({local_head[:12]})")
+
+
 def _copy_home_overlay(source_root: Path, *, key: Path) -> None:
     if not source_root.is_dir():
         raise FileNotFoundError(f"student_home_content is not a directory: {source_root}")
@@ -334,6 +410,8 @@ def build_golden(cfg: AppConfig) -> int:
         print("Continue the manual work if needed, shut it down cleanly, then run finalize-golden.")
         print("Use reset-golden if this work image should be discarded.")
         return 0
+
+    _require_clean_published_source(cfg)
 
     print("Build golden image and prepare it for manual work")
     print(f"  work image            : {cfg.golden_building_image}")

@@ -243,6 +243,13 @@ classroom host definitions.
 ./scripts/mct-vm.py build-golden
 ```
 
+Before it creates any image, `build-golden` requires the outer NixOS-Bunny
+working tree to be clean and verifies that local `HEAD` exactly matches the
+published `HEAD` of `[provisioning].nixos_bunny_bootstrap_repo`. The image is
+built from the local flake, but the Golden VM later clones that published
+repository into `/home/student/NixOS-Bunny`; those two states must therefore be
+identical.
+
 `build-golden` now owns the former external `nix build .#qcow2` step as well as
 the former `prepare-golden` automation. It:
 

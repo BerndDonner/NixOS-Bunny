@@ -60,6 +60,7 @@ class AppConfig:
     golden_vars: Path
     student_home_content: Path | None
     browser_start_page: str
+    nixos_bunny_bootstrap_repo: str
     preparation_host_key: Path
     optimize_image_size: bool
     course_source: str
@@ -215,7 +216,11 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
         "golden_image",
         {"file", "student_home_content", "browser_start_page"},
     )
-    provisioning = _table(data, "provisioning", {"preparation_host_key"})
+    provisioning = _table(
+        data,
+        "provisioning",
+        {"nixos_bunny_bootstrap_repo", "preparation_host_key"},
+    )
     images = _table(data, "images", {"optimize_image_size"})
     courses = _table(data, "courses", {"source", "student_origin"})
     forgejo = _table(data, "forgejo", {"host", "exam_owner"})
@@ -278,6 +283,9 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
         golden_vars=golden_vars,
         student_home_content=student_home_content,
         browser_start_page=_required_str(golden, "browser_start_page", "golden_image"),
+        nixos_bunny_bootstrap_repo=_required_str(
+            provisioning, "nixos_bunny_bootstrap_repo", "provisioning"
+        ),
         preparation_host_key=_path(
             _required_str(provisioning, "preparation_host_key", "provisioning")
         ),

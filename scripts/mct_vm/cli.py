@@ -59,6 +59,7 @@ def _config_check(cfg: AppConfig) -> int:
     print(f"  generated hosts         : {cfg.generated_hosts_dir}")
     print(f"  logs                    : {cfg.logs_dir}")
     print(f"  student home content    : {cfg.student_home_content or '(none)'}")
+    print(f"  Bunny bootstrap repo    : {cfg.nixos_bunny_bootstrap_repo}")
     print(f"  preparation host key    : {cfg.preparation_host_key}")
     print(f"  Bunny setup public key  : {cfg.provisioning_public_key}")
     print(f"  browser start page      : {cfg.browser_start_page}")

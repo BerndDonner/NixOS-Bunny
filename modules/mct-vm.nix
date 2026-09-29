@@ -1,4 +1,4 @@
-{ config, pkgs, lib, ... }:
+{ config, pkgs, lib, nixosBunnyBootstrapRepo, ... }:
 
 let
   username = "student";
@@ -35,7 +35,7 @@ in {
       home="/home/${username}"
       target="$home/NixOS-Bunny"
       tmp="$home/.NixOS-Bunny.clone"
-      repo="https://github.com/BerndDonner/NixOS-Bunny.git"
+      repo=${lib.escapeShellArg nixosBunnyBootstrapRepo}
 
       mkdir -p "$home"
 
