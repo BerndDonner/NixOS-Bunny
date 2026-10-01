@@ -1,5 +1,12 @@
 vm, profile
 bunny00, linux-amd64
+bunny01, windows-amd64
 bunny02, macos-arm64
+bunny03, macos-arm64
+bunny04, windows-amd64
 bunny05, macos-arm64
+bunny06, windows-amd64
+bunny10, windows-amd64 
 bunny14, macos-arm64
+bunny15, windows-amd64
+bunny16, windows-amd64
