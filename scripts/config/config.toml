@@ -33,7 +33,7 @@ mode = "classroom"
 # default. Supported values are "amd64" and "arm64". Lockdown/exam images are
 # amd64-only. For classroom arm64, build-vms selects only macos-arm64 entries
 # from scripts/config/private-devices.csv.
-arch = "amd64"
+arch = "arm64"
 
 [paths]
 # Root for architecture-separated VM images. mct-vm automatically uses
