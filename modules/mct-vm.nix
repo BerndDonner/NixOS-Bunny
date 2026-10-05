@@ -1,4 +1,4 @@
-{ config, pkgs, lib, nixosBunnyBootstrapRepo, imageDiskSizeGiB, ... }:
+{ config, pkgs, lib, nixosBunnyBootstrapRepo, ... }:
 
 let
   username = "student";
@@ -90,10 +90,12 @@ in {
   };
   time.timeZone = "Europe/Berlin";
 
-  # Fixed logical capacity for the qemu-efi image used by amd64 builds.
-  # The QCOW2 remains sparse; ARM Disko uses the same shared capacity value.
+  # Keep the amd64 qemu-efi builder at its compact automatic size. Building the
+  # final 64 GiB filesystem through cptofs can stall in the image builder.
+  # build-golden enlarges the finished sparse QCOW2 to [images].disk_size_gib
+  # before the first boot, where NixOS grows the root partition/filesystem.
   image.modules.qemu-efi = {
-    virtualisation.diskSize = imageDiskSizeGiB * 1024;
+    virtualisation.diskSize = "auto";
   };
 
   # VM guest integration
