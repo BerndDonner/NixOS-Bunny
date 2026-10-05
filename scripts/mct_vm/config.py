@@ -62,6 +62,7 @@ class AppConfig:
     browser_start_page: str
     nixos_bunny_bootstrap_repo: str
     preparation_host_key: Path
+    image_disk_size_gib: int
     optimize_image_size: bool
     course_source: str
     course_student_origin: str
@@ -174,6 +175,13 @@ def _bool(table: dict[str, Any], key: str, section: str, default: bool) -> bool:
     return value
 
 
+def _positive_int(table: dict[str, Any], key: str, section: str) -> int:
+    value = table.get(key)
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"config.toml: [{section}].{key} must be a positive integer")
+    return value
+
+
 def _string_list(
     table: dict[str, Any],
     key: str,
@@ -221,7 +229,7 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
         "provisioning",
         {"nixos_bunny_bootstrap_repo", "preparation_host_key"},
     )
-    images = _table(data, "images", {"optimize_image_size"})
+    images = _table(data, "images", {"disk_size_gib", "optimize_image_size"})
     courses = _table(data, "courses", {"source", "student_origin"})
     forgejo = _table(data, "forgejo", {"host", "exam_owner"})
     lockdown = _table(data, "lockdown", {"repo"})
@@ -289,6 +297,7 @@ def load_config(path: Path = CONFIG_PATH) -> AppConfig:
         preparation_host_key=_path(
             _required_str(provisioning, "preparation_host_key", "provisioning")
         ),
+        image_disk_size_gib=_positive_int(images, "disk_size_gib", "images"),
         optimize_image_size=_bool(images, "optimize_image_size", "images", True),
         course_source=_required_str(courses, "source", "courses"),
         course_student_origin=_required_str(courses, "student_origin", "courses"),

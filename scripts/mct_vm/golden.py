@@ -51,6 +51,43 @@ def _copy_plain(src: Path, dst: Path) -> None:
     dst.chmod(dst.stat().st_mode | stat.S_IWUSR)
 
 
+def _ensure_qcow2_capacity(image: Path, *, size_gib: int) -> None:
+    qemu_img = shutil.which("qemu-img")
+    if qemu_img is None:
+        raise FileNotFoundError("Missing required command in PATH: qemu-img")
+
+    proc = subprocess.run(
+        [qemu_img, "info", "--output=json", str(image)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=True,
+    )
+    try:
+        virtual_size = int(json.loads(proc.stdout)["virtual-size"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Could not determine QCOW2 virtual size for {image}") from exc
+
+    target_size = size_gib * 1024**3
+    if virtual_size > target_size:
+        raise RuntimeError(
+            f"Built QCOW2 is already larger than configured disk capacity: "
+            f"{virtual_size} bytes > {target_size} bytes ({size_gib} GiB)"
+        )
+    if virtual_size == target_size:
+        print(f"Logical QCOW2 capacity already {size_gib} GiB")
+        return
+
+    print(
+        f"Growing logical QCOW2 capacity: "
+        f"{virtual_size / 1024**3:.1f} GiB -> {size_gib} GiB"
+    )
+    subprocess.run(
+        [qemu_img, "resize", str(image), f"{size_gib}G"],
+        check=True,
+    )
+
+
 def _pair_state(image: Path, vars_file: Path) -> str:
     have_image = image.is_file()
     have_vars = vars_file.is_file()
@@ -416,6 +453,7 @@ def build_golden(cfg: AppConfig) -> int:
     print("Build golden image and prepare it for manual work")
     print(f"  work image            : {cfg.golden_building_image}")
     print(f"  work UEFI state       : {cfg.golden_building_vars}")
+    print(f"  logical disk capacity : {cfg.image_disk_size_gib} GiB")
     print(f"  student home content  : {cfg.student_home_content or '(none)'}")
     print("  browser start page    : deliberately deferred to finalize-golden")
     print("  automatic preparation  : isolated headless boot")
@@ -430,6 +468,10 @@ def build_golden(cfg: AppConfig) -> int:
     built = _nix_build_generic_qcow2(cfg)
     print(f"Copying Nix QCOW2 {built} -> {cfg.golden_building_image}")
     _copy_qcow2(built, cfg.golden_building_image)
+    _ensure_qcow2_capacity(
+        cfg.golden_building_image,
+        size_gib=cfg.image_disk_size_gib,
+    )
 
     # Automatic mutations happen in a separate headless boot.  This removes the
     # race where SDDM/Plasma could start using /home/student while SSH

@@ -75,6 +75,13 @@ nixos_bunny_bootstrap_repo = "https://github.com/BerndDonner/NixOS-Bunny.git"
 preparation_host_key = "~/.ssh/mct-vm-setup"
 
 [images]
+# Logical capacity of every newly built Bunny disk image. QCOW2 is sparse, so
+# this does not reserve 64 GiB on the host. The amd64 Nix image is built at its
+# compact automatic size and enlarged before its first boot; NixOS then grows
+# the root partition/filesystem into the added space. ARM Disko builds directly
+# at this capacity.
+disk_size_gib = 64
+
 # Ask the guest filesystems to release unused blocks before successful shutdown.
 optimize_image_size = true
 
