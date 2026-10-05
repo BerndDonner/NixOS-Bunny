@@ -18,6 +18,7 @@
       lib = nixpkgs.lib;
 
       username = "student";
+      imageDiskSizeGiB = 64;
 
       toolConfig = builtins.fromTOML (builtins.readFile ./scripts/config/config.toml);
       forgejoHost = toolConfig.forgejo.host;
@@ -52,7 +53,7 @@
         in nixpkgs.lib.nixosSystem {
           system = targetSystem;
           specialArgs = {
-            inherit baseHost lockdown forgejoHost nixosBunnyBootstrapRepo;
+            inherit baseHost lockdown forgejoHost nixosBunnyBootstrapRepo imageDiskSizeGiB;
           } // lib.optionalAttrs (targetSystem == armSystem) {
             # Disko builds the ARM image from the current x86_64 build host and
             # uses binfmt for target-side aarch64 install steps.

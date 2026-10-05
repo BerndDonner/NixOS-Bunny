@@ -1,4 +1,4 @@
-{ config, pkgs, lib, nixosBunnyBootstrapRepo, ... }:
+{ config, pkgs, lib, nixosBunnyBootstrapRepo, imageDiskSizeGiB, ... }:
 
 let
   username = "student";
@@ -89,6 +89,12 @@ in {
     users.${username} = import ./home/student.nix;
   };
   time.timeZone = "Europe/Berlin";
+
+  # Fixed logical capacity for the qemu-efi image used by amd64 builds.
+  # The QCOW2 remains sparse; ARM Disko uses the same shared capacity value.
+  image.modules.qemu-efi = {
+    virtualisation.diskSize = imageDiskSizeGiB * 1024;
+  };
 
   # VM guest integration
   virtualisation.vmware.guest.enable = true;

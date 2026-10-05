@@ -90,7 +90,8 @@ optimize_image_size = true
 source = "repos/{repo}"
 
 # Classroom Forgejo remote configured as origin. No credentials are used during
-# image building; student branches are first published later with git pub.
+# image building. build-vms preconfigures each personal branch to track the
+# same-named branch on origin, so a plain git push can publish it if necessary.
 student_origin = "https://forgejo.meisterk.de/Microcontrollertechnik/{repo}.git"
 
 [forgejo]

@@ -162,8 +162,8 @@ else
     else
         git switch -c "$student" master
     fi
-    git config --local --unset-all "branch.$student.remote" 2>/dev/null || true
-    git config --local --unset-all "branch.$student.merge" 2>/dev/null || true
+    git config --local "branch.$student.remote" origin
+    git config --local "branch.$student.merge" "refs/heads/$student"
 fi
 
 bash _config/setup.sh
@@ -220,9 +220,8 @@ if [[ "$student" == "donner" ]]; then
     [[ "$(git config --local --get branch.master.remote 2>/dev/null || true)" == "origin" ]] || fail "teacher master remote metadata is wrong"
     [[ "$(git config --local --get branch.master.merge 2>/dev/null || true)" == "refs/heads/master" ]] || fail "teacher master merge metadata is wrong"
 else
-    if git config --local --get "branch.$student.remote" >/dev/null 2>&1; then
-        fail "student branch already has an upstream; first publication must remain git pub"
-    fi
+    [[ "$(git config --local --get "branch.$student.remote" 2>/dev/null || true)" == "origin" ]] || fail "student branch remote metadata is wrong"
+    [[ "$(git config --local --get "branch.$student.merge" 2>/dev/null || true)" == "refs/heads/$student" ]] || fail "student branch merge metadata is wrong"
     grep -Fq '"files.readonlyInclude"' .vscode/settings.json || fail "VS Code read-only protection is missing"
     grep -Fq "$student" .vscode/settings.json || fail "VS Code settings do not contain the student login"
 fi

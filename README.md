@@ -309,8 +309,13 @@ For classroom mode, `build-vms` uses the local course repository configured unde
 `[courses].source` (normally `repos/MCT_<course>`). It creates a local Git bundle
 from the committed refs and configures Forgejo as the only final remote. A dirty
 index/worktree is allowed: `build-vms` prints a warning and excludes uncommitted
-and untracked changes from the bundle. No GitHub bootstrap is involved. Student
-branch/setup hooks/VS Code protection, validation and shutdown remain unchanged.
+and untracked changes from the bundle. No GitHub bootstrap is involved. For each
+student VM, the personal branch is configured locally with `origin` and the
+same-named remote branch as its upstream metadata. This does not contact Forgejo
+during image creation. If the remote student branch already exists, normal
+`git pull`/`git push` work immediately. If it does not exist yet, the first
+`git push` creates it.
+Student setup hooks/VS Code protection, validation and shutdown remain unchanged.
 
 For lockdown mode, `scripts/config/rollout-lockdown.csv` selects the VMs while
 `hosts/bunnyXX.nix` still comes from the classroom identity mapping. The exam

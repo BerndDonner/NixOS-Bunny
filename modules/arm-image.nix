@@ -1,4 +1,4 @@
-{ armImageBuilderPkgs, ... }:
+{ armImageBuilderPkgs, imageDiskSizeGiB, ... }:
 
 {
   # ARM-only image builder for Apple-Silicon/VMware-Fusion student VMs.
@@ -30,7 +30,7 @@
       # QCOW2 is sparse, so this is logical capacity rather than immediate host
       # disk consumption. Leave enough room for the desktop/VS-Code closure and
       # later manual golden-image work.
-      imageSize = "32G";
+      imageSize = "${toString imageDiskSizeGiB}G";
 
       content = {
         type = "gpt";
