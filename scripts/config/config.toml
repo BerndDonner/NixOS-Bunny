@@ -33,7 +33,7 @@ mode = "classroom"
 # default. Supported values are "amd64" and "arm64". Lockdown/exam images are
 # amd64-only. For classroom arm64, build-vms selects only macos-arm64 entries
 # from scripts/config/private-devices.csv.
-arch = "arm64"
+arch = "amd64"
 
 [paths]
 # Root for architecture-separated VM images. mct-vm automatically uses
@@ -51,8 +51,7 @@ logs_dir = "logs"
 #   golden-26.05.finalizing.qcow2 - disposable finalization copy
 #   golden-26.05.finalized.qcow2  - immutable source for build-vms
 # and matching *.OVMF_VARS.fd files automatically.
-# file = "golden-26.05.qcow2"
-file = "test-for-debugging.qcow2"
+file = "golden-26.09.qcow2"
 
 # Tree overlaid onto /home/student during build-golden. All entries, including
 # dotfiles, are copied recursively; Git management metadata (.git, .gitignore,
@@ -113,7 +112,7 @@ prepared_images_dir = "images"
 # generated image set and copies the tooling, but excludes private repos/. The
 # root images/ directory remains the amd64 school rollout; private/ is a fully
 # self-contained copy of all private-device artifacts across amd64 and arm64.
-staging_dir = "/run/media/bernd/Extreme SSD/rollout_2627_2"
+staging_dir = "/run/media/bernd/Extreme SSD/rollout_2627_3"
 
 # Target directory on the Windows classroom PCs.
 windows_vm_directory = 'C:\Virtual_Machines'
