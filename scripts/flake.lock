@@ -110,14 +110,15 @@
         "home-manager": "home-manager",
         "nixpkgs": "nixpkgs",
         "nixpkgs-unstable": "nixpkgs-unstable",
+        "scope-rs-src": "scope-rs-src",
         "steel": "steel"
       },
       "locked": {
-        "lastModified": 1789847495,
-        "narHash": "sha256-J3YjNfI9aFNf8FVzS7YSkXBjTMUPE0fi3P/TqvmnXwQ=",
+        "lastModified": 1792490836,
+        "narHash": "sha256-B6vk4jaHspdVGSkSJ39tb4/LUaaiudvccZVv8yp5YYg=",
         "owner": "BerndDonner",
         "repo": "NixOS-Config",
-        "rev": "f6e5e63473d789a2d6b17035755fe1485bd0f5ec",
+        "rev": "7af39cabebe03877910212d1fed18fd72713a354",
         "type": "github"
       },
       "original": {
@@ -186,6 +187,23 @@
       "original": {
         "owner": "oxalica",
         "repo": "rust-overlay",
+        "type": "github"
+      }
+    },
+    "scope-rs-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1785417002,
+        "narHash": "sha256-7ezgqsJih7QwHZS4rGiDmEX3+nlHYcOJM6D5M2hSWHw=",
+        "owner": "matheuswhite",
+        "repo": "scope-rs",
+        "rev": "752aef0763746a804f345e4c535ba9614cfdede9",
+        "type": "github"
+      },
+      "original": {
+        "owner": "matheuswhite",
+        "ref": "v0.6.0",
+        "repo": "scope-rs",
         "type": "github"
       }
     },

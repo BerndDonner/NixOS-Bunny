@@ -13,7 +13,7 @@
         inherit system;
       };
 
-      pythonDev = import (nixos-config + "/lib/python-develop.nix");
+      pythonDev = nixos-config.lib.mkPythonDevShell;
     in
     {
       devShells.${system}.default = pythonDev {
