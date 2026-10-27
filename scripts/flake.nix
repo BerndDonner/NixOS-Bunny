@@ -18,6 +18,8 @@
     {
       devShells.${system}.default = pythonDev {
         inherit pkgs;
+        inputs = { inherit nixos-config; };
+        flakeLockPath = ./flake.lock;
         symbol = "🐍";
         pythonVersion = pkgs.python3;
 
